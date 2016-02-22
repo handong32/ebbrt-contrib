@@ -180,16 +180,12 @@ protected:
 
 
   //global bias field correction
-  ///global bias correction flag
-  bool _global_bias_correction;
   ///low intensity cutoff for bias field estimation
   double _low_intensity_cutoff;
 
   //to restore original signal intensity of the MRI slices
-  vector<float> _stack_factor;
   double _average_value;
-  vector<int> _stack_index;
-
+  
   //forced excluded slices
   vector<int> _force_excluded;
 
@@ -234,6 +230,13 @@ public:
   vector<irtkRealImage> _simulated_weights;
   vector<irtkRealImage> _simulated_inside;
   
+  vector<float> _stack_factor;
+  vector<int> _stack_index;
+
+  
+  ///global bias correction flag
+  bool _global_bias_correction;
+
   /// Volume mask
   irtkRealImage _mask;
 

@@ -2285,7 +2285,8 @@ void irtkReconstruction::GaussianReconstruction() {
   // find median
   sort(voxel_num_tmp.begin(), voxel_num_tmp.end());
   int median = voxel_num_tmp[round(voxel_num_tmp.size() * 0.5)];
-
+  //std::cout << "median = " << median << std::endl;
+  
   // remember slices with small overlap with ROI
   _small_slices.clear();
   for (i = 0; i < voxel_num.size(); i++)
@@ -2506,12 +2507,13 @@ void irtkReconstruction::InitializeRobustStatistics() {
   // intensities
   _m_cpu = 1 / (2.1 * _max_intensity - 1.9 * _min_intensity);
 
-  if (_debug || _debugGPU)
-    cout << "Initializing robust statistics CPU: "
-         << "sigma=" << sqrt(_sigma_cpu) << " "
-         << "m=" << _m_cpu << " "
-         << "mix=" << _mix_cpu << " "
-         << "mix_s=" << _mix_s_cpu << endl;
+  //if (_debug || _debugGPU)
+  std::cout << "Initializing robust statistics CPU: "
+	    << "sigma=" << _sigma_cpu << " "
+	    << "sigma_s_cpu=" << _sigma_s_cpu << " "
+	    << "m=" << _m_cpu << " "
+	    << "mix=" << _mix_cpu << " "
+	    << "mix_s=" << _mix_s_cpu << std::endl;
 }
 
 class ParallelEStep {
@@ -2533,48 +2535,54 @@ public:
       // identify scale factor
       double scale = reconstructor->_scale_cpu[inputIndex];
 
+      //std::printf("Weight = ");
       double num = 0;
       // Calculate error, voxel weights, and slice potential
       for (int i = 0; i < slice.GetX(); i++)
-        for (int j = 0; j < slice.GetY(); j++)
-          if (slice(i, j, 0) != -1) {
-            // bias correct and scale the slice
-            slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
+	  for (int j = 0; j < slice.GetY(); j++) {
+	      if (slice(i, j, 0) != -1) {
+		  // bias correct and scale the slice
+		  slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
 
-            // number of volumetric voxels to which
-            // current slice voxel contributes
-            int n = reconstructor->_volcoeffs[inputIndex][i][j].size();
+		  // number of volumetric voxels to which
+		  // current slice voxel contributes
+		  int n = reconstructor->_volcoeffs[inputIndex][i][j].size();
 
-            // if n == 0, slice voxel has no overlap with volumetric ROI,
-            // do not process it
+		  // if n == 0, slice voxel has no overlap with volumetric ROI,
+		  // do not process it
 
-            if ((n > 0) &&
-                (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0)) {
-              slice(i, j, 0) -=
-                  reconstructor->_simulated_slices[inputIndex](i, j, 0);
+		  if ((n > 0) &&
+		      (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0)) {
+		      slice(i, j, 0) -=
+			  reconstructor->_simulated_slices[inputIndex](i, j, 0);
 
-              // calculate norm and voxel-wise weights
+		      // calculate norm and voxel-wise weights
 
-              // Gaussian distribution for inliers (likelihood)
-              double g =
-                  reconstructor->G(slice(i, j, 0), reconstructor->_sigma_cpu);
-              // Uniform distribution for outliers (likelihood)
-              double m = reconstructor->M(reconstructor->_m_cpu);
+		      // Gaussian distribution for inliers (likelihood)
+		      double g =
+			  reconstructor->G(slice(i, j, 0), reconstructor->_sigma_cpu);
+		      // Uniform distribution for outliers (likelihood)
+		      double m = reconstructor->M(reconstructor->_m_cpu);
 
-              // voxel_wise posterior
-              double weight = g * reconstructor->_mix_cpu /
-                              (g * reconstructor->_mix_cpu +
-                               m * (1 - reconstructor->_mix_cpu));
-              reconstructor->_weights[inputIndex].PutAsDouble(i, j, 0, weight);
+		      // voxel_wise posterior
+		      double weight = g * reconstructor->_mix_cpu /
+			  (g * reconstructor->_mix_cpu +
+			   m * (1 - reconstructor->_mix_cpu));
+		      reconstructor->_weights[inputIndex].PutAsDouble(i, j, 0, weight);
+		      //std::printf("%lf ", weight);
 
-              // calculate slice potentials
-              if (reconstructor->_simulated_weights[inputIndex](i, j, 0) >
-                  0.99) {
-                slice_potential[inputIndex] += (1.0 - weight) * (1.0 - weight);
-                num++;
-              }
-            } else
-              reconstructor->_weights[inputIndex].PutAsDouble(i, j, 0, 0);
+		      // calculate slice potentials
+		      if (reconstructor->_simulated_weights[inputIndex](i, j, 0) >
+			  0.99) {
+			  slice_potential[inputIndex] += (1.0 - weight) * (1.0 - weight);
+			  num++;
+		      }
+		  } else {
+		      reconstructor->_weights[inputIndex].PutAsDouble(i, j, 0, 0);
+		  }
+	      }
+	      	  
+	      //std::cout << i << " " << j << " " << reconstructor->_weights[inputIndex](i, j, 0) << std::endl;
           }
 
       // evaluate slice potential
@@ -2584,6 +2592,7 @@ public:
       } else
         slice_potential[inputIndex] = -1; // slice has no unpadded voxels
     }
+    //std::printf("\n");
   }
 
   ParallelEStep(irtkReconstruction *reconstructor,
@@ -2810,6 +2819,7 @@ void irtkReconstruction::EStepGPU() {
     cout << endl;
   }
 
+
   // TODO only slice weight
   // reconstructionGPU->UpdateSliceWeights(_slice_weight_gpu);
 }
@@ -3006,6 +3016,17 @@ void irtkReconstruction::EStep() {
     cout << "All slices are outliers. Setting _mix_s to 0.9." << endl;
     _mix_s_cpu = 0.9;
   }
+
+  double tempSum = 0.0;
+  for(inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
+      // Calculate error, voxel weights, and slice potential
+      for (int i = 0; i < _slices[inputIndex].GetX(); i++) {
+	  for (int j = 0; j < _slices[inputIndex].GetY(); j++) {
+	      tempSum += _weights[inputIndex](i, j, 0);
+	  }
+      }
+  }
+  std::printf("tempSum = %lf\n", tempSum);
 
   if (_debug || _debugGPU) {
     cout << setprecision(3);
@@ -3473,32 +3494,38 @@ public:
 
       // calculate error
       for (int i = 0; i < slice.GetX(); i++)
-        for (int j = 0; j < slice.GetY(); j++)
-          if (slice(i, j, 0) != -1) {
-            // bias correct and scale the slice
-            slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
+      {
+	  for (int j = 0; j < slice.GetY(); j++)
+	  {
+	      //std::cout << i << " " << j << " " << inputIndex << " " << slice(i,j,0) << " " << w(i,j,0) << " " << b(i,j,0) << " " << scale << std::endl;
+	      
+	      if (slice(i, j, 0) != -1) {
+		  // bias correct and scale the slice
+		  slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
 
-            // otherwise the error has no meaning - it is equal to slice
-            // intensity
-            if (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0.99) {
+		  // otherwise the error has no meaning - it is equal to slice
+		  // intensity
+		  if (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0.99) {
 
-              slice(i, j, 0) -=
-                  reconstructor->_simulated_slices[inputIndex](i, j, 0);
+		      slice(i, j, 0) -=
+			  reconstructor->_simulated_slices[inputIndex](i, j, 0);
 
-              // sigma and mix
-              double e = slice(i, j, 0);
-              sigma += e * e * w(i, j, 0);
-              mix += w(i, j, 0);
+		      // sigma and mix
+		      double e = slice(i, j, 0);
+		      sigma += e * e * w(i, j, 0);
+		      mix += w(i, j, 0);
 
-              //_m
-              if (e < min)
-                min = e;
-              if (e > max)
-                max = e;
+		      //_m
+		      if (e < min)
+			  min = e;
+		      if (e > max)
+			  max = e;
 
-              num++;
-            }
-          }
+		      num++;
+		  }
+	      }
+	  }
+      }
     } // end of loop for a slice inputIndex
   }
 
@@ -3553,6 +3580,8 @@ void irtkReconstruction::MStep(int iter) {
   if (_debug)
     cout << "MStep" << endl;
 
+  std::cout << "_sigma_cpu " << _sigma_cpu << "_step " << _step << " _mix_cpu " << _mix_cpu << " _m_cpu " << _m_cpu << std::endl;
+
   ParallelMStep parallelMStep(this);
   parallelMStep();
   double sigma = parallelMStep.sigma;
@@ -3560,11 +3589,10 @@ void irtkReconstruction::MStep(int iter) {
   double num = parallelMStep.num;
   double min = parallelMStep.min;
   double max = parallelMStep.max;
-  // printf("CPU sigma %f, mix %f, num %f, min_ %f, max_ %f\n", sigma, mix, num,
-  // min, max);
+  //printf("CPU sigma %f, mix %f, num %f, min_ %f, max_ %f\n", sigma, mix, num, min, max);
   //std::cout.precision(6);
-  //std::cout << "CPU sigma " << sigma << " mix " << mix << " num " << num
-  //          << " min_ " << min << " max_ " << max << std::endl;
+  std::cout << " CPU sigma " << sigma << " mix " << mix << " num " << num
+            << " min_ " << min << " max_ " << max << std::endl;
   // Calculate sigma and mix
   if (mix > 0) {
     _sigma_cpu = sigma / mix;
@@ -3855,38 +3883,38 @@ void irtkReconstruction::EvaluateGPU(int iter) {
 }
 
 void irtkReconstruction::Evaluate(int iter) {
-  cout << "Iteration " << iter << ": " << endl;
+    //cout << "Iteration " << iter << ": " << endl;
 
-  cout << "Included slices CPU: ";
+  //cout << "Included slices CPU: ";
   int sum = 0;
   unsigned int i;
   for (i = 0; i < _slices.size(); i++) {
     if ((_slice_weight_cpu[i] >= 0.5) && (_slice_inside_cpu[i])) {
-      cout << i << " ";
+	//cout << i << " ";
       sum++;
     }
   }
-  cout << endl << "Total: " << sum << endl;
+  //cout << endl << "Total: " << sum << endl;
 
-  cout << "Excluded slices CPU: ";
+  //cout << "Excluded slices CPU: ";
   sum = 0;
   for (i = 0; i < _slices.size(); i++) {
     if ((_slice_weight_cpu[i] < 0.5) && (_slice_inside_cpu[i])) {
-      cout << i << " ";
+	//cout << i << " ";
       sum++;
     }
   }
-  cout << endl << "Total CPU: " << sum << endl;
+  //cout << endl << "Total CPU: " << sum << endl;
 
-  cout << "Outside slices CPU: ";
+  //cout << "Outside slices CPU: ";
   sum = 0;
   for (i = 0; i < _slices.size(); i++) {
     if (!(_slice_inside_cpu[i])) {
-      cout << i << " ";
+	//cout << i << " ";
       sum++;
     }
   }
-  cout << endl << "Total CPU: " << sum << endl;
+  //cout << endl << "Total CPU: " << sum << endl;
 }
 
 class ParallelNormaliseBias {

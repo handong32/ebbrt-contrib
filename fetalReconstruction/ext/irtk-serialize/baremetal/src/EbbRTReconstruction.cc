@@ -27,6 +27,20 @@ EBBRT_PUBLISH_TYPE(, EbbRTReconstruction);
 
 using namespace ebbrt;
 
+int _directions[13][3] = { { 1, 0, -1 },
+			   { 0, 1, -1 },
+			   { 1, 1, -1 },
+			   { 1, -1, -1 },
+			   { 1, 0, 0 },
+			   { 0, 1, 0 },
+			   { 1, 1, 0 },
+			   { 1, -1, 0 },
+			   { 1, 0, 1 },
+			   { 0, 1, 1 },
+			   { 1, 1, 1 },
+			   { 1, -1, 1 },
+			   { 0, 0, 1 } };
+
 EbbRTReconstruction& EbbRTReconstruction::HandleFault(ebbrt::EbbId id) {
   {
     ebbrt::LocalIdMap::ConstAccessor accessor;
@@ -180,6 +194,114 @@ inline double M(double m, double _step)
   return m*_step;
 }
 
+void ScaleVolume(irtkRealImage& _reconstructed, std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _weights, std::vector<irtkRealImage>& _simulated_slices, std::vector<irtkRealImage>& _simulated_weights, std::vector<double>& _slice_weight_cpu)
+{
+    unsigned int inputIndex;
+    int i, j;
+    double scalenum = 0, scaleden = 0;
+
+    for (inputIndex = 0; inputIndex < (unsigned int)_slices.size(); inputIndex++) {
+	// alias for the current slice
+	irtkRealImage &slice = _slices[inputIndex];
+
+	// alias for the current weight image
+	irtkRealImage &w = _weights[inputIndex];
+
+	// alias for the current simulated slice
+	irtkRealImage &sim = _simulated_slices[inputIndex];
+
+	for (i = 0; i < slice.GetX(); i++)
+	    for (j = 0; j < slice.GetY(); j++)
+		if (slice(i, j, 0) != -1) {
+		    // scale - intensity matching
+		    if (_simulated_weights[inputIndex](i, j, 0) > 0.99) {
+			scalenum += w(i, j, 0) * _slice_weight_cpu[inputIndex] *
+			    slice(i, j, 0) * sim(i, j, 0);
+			scaleden += w(i, j, 0) * _slice_weight_cpu[inputIndex] *
+			    sim(i, j, 0) * sim(i, j, 0);
+		    }
+		}
+    } // end of loop for a slice inputIndex
+
+    // calculate scale for the volume
+    double scale = scalenum / scaleden;
+    ebbrt::kprintf("Volume scale CPU: %f\n", scale);
+
+    irtkRealPixel *ptr = _reconstructed.GetPointerToVoxels();
+    for (i = 0; i < _reconstructed.GetNumberOfVoxels(); i++) {
+	if (*ptr > 0)
+	    *ptr = *ptr * scale;
+	ptr++;
+    }
+}
+
+void RestoreSliceIntensities(std::vector<irtkRealImage>& _slices, std::vector<int> _stack_index, std::vector<float> _stack_factor)
+{
+    unsigned int inputIndex;
+    int i;
+    double factor;
+    irtkRealPixel *p;
+
+    for (inputIndex = 0; inputIndex < (unsigned int)_slices.size(); inputIndex++) {
+	// calculate scaling factor
+	factor = _stack_factor[_stack_index[inputIndex]]; //_average_value;
+
+	// read the pointer to current slice
+	p = _slices[inputIndex].GetPointerToVoxels();
+	for (i = 0; i < _slices[inputIndex].GetNumberOfVoxels(); i++) {
+	    if (*p > 0)
+		*p = *p / factor;
+	    p++;
+	}
+    }
+}
+
+void Evaluate(int iter, std::vector<irtkRealImage>& _slices, std::vector<double>& _slice_weight_cpu, std::vector<bool>& _slice_inside_cpu) {
+    //cout << "Iteration " << iter << ": " << endl;
+
+    ebbrt::kprintf("Included slices CPU: ");
+    int sum = 0;
+    unsigned int i;
+    for (i = 0; i < _slices.size(); i++) {
+	if ((_slice_weight_cpu[i] >= 0.5) && (_slice_inside_cpu[i])) {
+	    ebbrt::kprintf("%d ",i);
+	    sum++;
+	}
+    }
+    ebbrt::kprintf("Total: %d\n", sum);
+
+    ebbrt::kprintf("Excluded slices CPU: ");
+    sum = 0;
+    for (i = 0; i < _slices.size(); i++) {
+	if ((_slice_weight_cpu[i] < 0.5) && (_slice_inside_cpu[i])) {
+	    ebbrt::kprintf("%d ",i);
+	    sum++;
+	}
+    }
+    ebbrt::kprintf("Total CPU: %d\n", sum);
+
+    ebbrt::kprintf("Outside slices CPU: ");
+    sum = 0;
+    for (i = 0; i < _slices.size(); i++) {
+	if (!(_slice_inside_cpu[i])) {
+	    ebbrt::kprintf("%d ",i);
+	    sum++;
+	}
+    }
+    ebbrt::kprintf("Total CPU: %d\n", sum);
+}
+
+void MaskVolume(irtkRealImage& _reconstructed, irtkRealImage& _mask) {
+  irtkRealPixel *pr = _reconstructed.GetPointerToVoxels();
+  irtkRealPixel *pm = _mask.GetPointerToVoxels();
+  for (int i = 0; i < _reconstructed.GetNumberOfVoxels(); i++) {
+    if (*pm == 0)
+      *pr = -1;
+    pm++;
+    pr++;
+  }
+}
+
 //Puts origin of the image into origin of world coordinates
 void ResetOrigin(irtkGreyImage &image,
                                      irtkRigidTransformation &transformation) {
@@ -202,12 +324,12 @@ void SetSmoothingParameters(double delta, double lambda, double& _delta, double&
     if (_alpha > 1) _alpha = 1;
 }
 
-void ParallelAdaptiveRegularization2(int* _directions, irtkRealImage& _reconstructed, irtkRealImage& _confidence_map, double& _alpha, double& _lambda, double& _delta, vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
+void ParallelAdaptiveRegularization2(irtkRealImage& _reconstructed, irtkRealImage& _confidence_map, double& _alpha, double& _lambda, double& _delta, vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
 {
     int dx = _reconstructed.GetX();
     int dy = _reconstructed.GetY();
     int dz = _reconstructed.GetZ();
-    for (size_t x = 0; x != _reconstructed.GetX(); ++x) {
+    for (size_t x = 0; x != (size_t)_reconstructed.GetX(); ++x) {
 	int xx, yy, zz;
 	for (int y = 0; y < dy; y++)
 	    for (int z = 0; z < dz; z++) {
@@ -260,7 +382,7 @@ void ParallelAdaptiveRegularization2(int* _directions, irtkRealImage& _reconstru
     }
 }
 
-void ParallelAdaptiveRegularization1(int* _directions, irtkRealImage& _reconstructed, irtkRealImage& _confidence_map, double& _alpha, double& _lambda, double& _delta, vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
+void ParallelAdaptiveRegularization1(irtkRealImage& _reconstructed, irtkRealImage& _confidence_map, double& _alpha, double& _lambda, double& _delta, vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
 {
     int dx = _reconstructed.GetX();
     int dy = _reconstructed.GetY();
@@ -279,7 +401,7 @@ void ParallelAdaptiveRegularization1(int* _directions, irtkRealImage& _reconstru
 			(_confidence_map(xx, yy, zz) > 0)) {
 			diff = (_original(xx, yy, zz) - _original(x, y, z)) *
 			    sqrt(_factor[i]) / _delta;
-			b[i](x, y, z) = _factor[i] / sqrt(1 + diff * diff);
+			_b[i](x, y, z) = _factor[i] / sqrt(1 + diff * diff);
 
 		    } else
 			_b[i](x, y, z) = 0;
@@ -287,7 +409,7 @@ void ParallelAdaptiveRegularization1(int* _directions, irtkRealImage& _reconstru
     }
 }
  
-void AdaptiveRegularization(inter iter, irtkRealImage& _original, int* _directions, irtkRealImage& _reconstructed, irtkRealImage& _confidence_map, double& _alpha, double& _lambda, double& _delta)
+void AdaptiveRegularization(int iter, irtkRealImage& _original, irtkRealImage& _reconstructed, irtkRealImage& _confidence_map, double& _alpha, double& _lambda, double& _delta)
 {
     vector<double> factor(13, 0);
     for (int i = 0; i < 13; i++) {
@@ -300,17 +422,17 @@ void AdaptiveRegularization(inter iter, irtkRealImage& _original, int* _directio
     for (int i = 0; i < 13; i++)
 	b.push_back(_reconstructed);
 
-    ParallelAdaptiveRegularization1(_directions, _reconstructed, _confidence_map, _alpha, _lambda, _delta, b, factor, _original);
+    ParallelAdaptiveRegularization1(_reconstructed, _confidence_map, _alpha, _lambda, _delta, b, factor, _original);
 	
     irtkRealImage _original2 = _reconstructed;
-    ParallelAdaptiveRegularization2(_directions, _reconstructed, _confidence_map, _alpha, _lambda, _delta, b, factor, _original);
+    ParallelAdaptiveRegularization2(_reconstructed, _confidence_map, _alpha, _lambda, _delta, b, factor, _original);
 
     if (_alpha * _lambda / (_delta * _delta) > 0.068) {
 	ebbrt::kprintf("Warning: regularization might not have smoothing effect! Ensure that alpha*lambda/delta^2 is below 0.068.\n");
     }
 }
 
-void BiasCorrectVolume(irtkRealImage& _original, double& _low_intensity_cutoff, double& _min_intensity, double& _max_intensity, irtkRealImage& _reconstructed, irtkRealImage& _mask)
+void BiasCorrectVolume(irtkRealImage& _original, double& _low_intensity_cutoff, double& _min_intensity, double& _max_intensity, irtkRealImage& _reconstructed, irtkRealImage& _mask, double& _sigma_bias)
 {
     // remove low-frequancy component in the reconstructed image which might have
     // accured due to overfitting of the biasfield
@@ -319,7 +441,7 @@ void BiasCorrectVolume(irtkRealImage& _original, double& _low_intensity_cutoff, 
 
     // calculate weighted residual
     irtkRealPixel *pr = residual.GetPointerToVoxels();
-    irtkRealPixel *po = original.GetPointerToVoxels();
+    irtkRealPixel *po = _original.GetPointerToVoxels();
     irtkRealPixel *pw = weights.GetPointerToVoxels();
     for (int i = 0; i < _reconstructed.GetNumberOfVoxels(); i++) {
 	// second and term to avoid numerical problems
@@ -376,21 +498,37 @@ void BiasCorrectVolume(irtkRealImage& _original, double& _low_intensity_cutoff, 
     }
 }
 
+void MaskImage(irtkRealImage &image, double padding, irtkRealImage& _mask) {
+  if (image.GetNumberOfVoxels() != _mask.GetNumberOfVoxels()) {
+      ebbrt::kprintf("Cannot mask the image - different dimensions\n");
+      exit(1);
+  }
+  irtkRealPixel *pr = image.GetPointerToVoxels();
+  irtkRealPixel *pm = _mask.GetPointerToVoxels();
+  for (int i = 0; i < image.GetNumberOfVoxels(); i++) {
+    if (*pm == 0)
+      *pr = padding;
+    pm++;
+    pr++;
+  }
+}
+
 void NormaliseBias(int iter, irtkRealImage& _volume_weights, irtkRealImage& _mask, double& _sigma_bias, irtkRealImage& _reconstructed, std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _bias, std::vector<double>& _scale_cpu, std::vector<SLICECOEFFS>& _volcoeffs, int start, int end)
 {
     irtkRealImage bias;
     bias.Initialize(_reconstructed.GetImageAttributes());
     bias = 0;
 
-    for (size_t inputIndex = (size_t)start; inputIndex < (size_t)end; ++inputIndex) {
+    for (size_t inputIndex = (size_t)start; inputIndex < (size_t)end; ++inputIndex)
+    {
 	// alias the current slice
-	irtkRealImage &slice = reconstructor->_slices[inputIndex];
+	irtkRealImage &slice = _slices[inputIndex];
 
 	// read the current bias image
-	irtkRealImage b = reconstructor->_bias[inputIndex];
+	irtkRealImage b = _bias[inputIndex];
 
 	// read current scale factor
-	double scale = reconstructor->_scale_cpu[inputIndex];
+	double scale = _scale_cpu[inputIndex];
 
 	irtkRealPixel *pi = slice.GetPointerToVoxels();
 	irtkRealPixel *pb = b.GetPointerToVoxels();
@@ -408,11 +546,11 @@ void NormaliseBias(int iter, irtkRealImage& _volume_weights, irtkRealImage& _mas
 		if (slice(i, j, 0) != -1) {
 		    // number of volume voxels with non-zero coefficients for current
 		    // slice voxel
-		    int n = reconstructor->_volcoeffs[inputIndex][i][j].size();
+		    int n = _volcoeffs[inputIndex][i][j].size();
 		    // add contribution of current slice voxel to all voxel volumes
 		    // to which it contributes
 		    for (int k = 0; k < n; k++) {
-			p = reconstructor->_volcoeffs[inputIndex][i][j][k];
+			p = _volcoeffs[inputIndex][i][j][k];
 			bias(p.x, p.y, p.z) += p.value * b(i, j, 0);
 		    }
 		}
@@ -422,9 +560,29 @@ void NormaliseBias(int iter, irtkRealImage& _volume_weights, irtkRealImage& _mas
     // volume voxel
     bias /= _volume_weights;
 
+    MaskImage(bias, 0, _mask);
+    irtkRealImage m = _mask;
+    irtkGaussianBlurring<irtkRealPixel> gb(_sigma_bias);
+    gb.SetInput(&bias);
+    gb.SetOutput(&bias);
+    gb.Run();
+    gb.SetInput(&m);
+    gb.SetOutput(&m);
+    gb.Run();
+    bias /= m;
+    
+    irtkRealPixel *pi, *pb;
+    pi = _reconstructed.GetPointerToVoxels();
+    pb = bias.GetPointerToVoxels();
+    for (int i = 0; i < _reconstructed.GetNumberOfVoxels(); i++) {
+	if (*pi != -1)
+	    *pi /= exp(-(*pb));
+	pi++;
+	pb++;
+    }
 }
 
-void Superresolution(int iter, double _min_intensity, double _max_intensity, irtkRealImage& _reconstructed, bool _global_bias_correction, std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _weights, std::vector<irtkRealImage>& _bias, std::vector<double>& _scale_cpu, std::vector<irtkRealImage>& _simulated_weights, std::vector<irtkRealImage>& _simulated_slices, int start, int end, irtkRealImage& _confidence_map, bool _adaptive, int* _directions, double _alpha, double _lambda, double _delta,  irtkRealImage& _mask, double _low_intensity_cutoff)
+void Superresolution(int iter, double _min_intensity, double _max_intensity, irtkRealImage& _reconstructed, bool _global_bias_correction, std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _weights, std::vector<irtkRealImage>& _bias, std::vector<double>& _scale_cpu, std::vector<irtkRealImage>& _simulated_slices, std::vector<SLICECOEFFS>& _volcoeffs, std::vector<double>& _slice_weight_cpu, int start, int end, irtkRealImage& _confidence_map, bool _adaptive, double _alpha, double _lambda, double _delta,  irtkRealImage& _mask, double _low_intensity_cutoff, double& _sigma_bias)
 {
     int i, j, k;
     irtkRealImage addon, original;
@@ -476,7 +634,7 @@ void Superresolution(int iter, double _min_intensity, double _max_intensity, irt
 			addon(p.x, p.y, p.z) +=
 			    p.value * slice(i, j, 0) * w(i, j, 0) *
 			    _slice_weight_cpu[inputIndex];
-			confidence_map(p.x, p.y, p.z) +=
+			_confidence_map(p.x, p.y, p.z) +=
 			    p.value * w(i, j, 0) *
 			    _slice_weight_cpu[inputIndex];
 		    }
@@ -498,9 +656,9 @@ void Superresolution(int iter, double _min_intensity, double _max_intensity, irt
     _reconstructed += addon * _alpha; //_average_volume_weight;
     
     // bound the intensities
-    for (i = 0; i < _reconstructed.GetX(); i++)
-	for (j = 0; j < _reconstructed.GetY(); j++)
-	    for (k = 0; k < _reconstructed.GetZ(); k++) {
+    for (i = 0; i < (int)_reconstructed.GetX(); i++)
+	for (j = 0; j < (int)_reconstructed.GetY(); j++)
+	    for (k = 0; k < (int)_reconstructed.GetZ(); k++) {
 		if (_reconstructed(i, j, k) < _min_intensity * 0.9)
 		    _reconstructed(i, j, k) = _min_intensity * 0.9;
 		if (_reconstructed(i, j, k) > _max_intensity * 1.1)
@@ -508,12 +666,85 @@ void Superresolution(int iter, double _min_intensity, double _max_intensity, irt
 	    }
 
     // Smooth the reconstructed image
-    AdaptiveRegularization(iter, original, _directions, _reconstructed, _confidence_map, _alpha, _lambda, _delta);
+    AdaptiveRegularization(iter, original, _reconstructed, _confidence_map, _alpha, _lambda, _delta);
     
     // Remove the bias in the reconstructed volume compared to previous iteration
     if (_global_bias_correction)
-	BiasCorrectVolume(original, _low_intensity_cutoff, _min_intensity, _max_intensity, _reconstructed, _mask);
+	BiasCorrectVolume(original, _low_intensity_cutoff, _min_intensity, _max_intensity, _reconstructed, _mask, _sigma_bias);
 
+}
+
+void MStep(int iter, std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _weights, std::vector<irtkRealImage>& _bias, std::vector<double>& _scale_cpu, std::vector<irtkRealImage>& _simulated_weights, std::vector<irtkRealImage>& _simulated_slices, int start, int end, double& _sigma_cpu, double& _step, double& _mix_cpu, double& _m_cpu)
+{
+    double sigma = 0;
+    double mix = 0;
+    double num = 0;
+    double min = voxel_limits<irtkRealPixel>::max();
+    double max = voxel_limits<irtkRealPixel>::min();
+    
+    //ebbrt::kprintf("%lf %lf %lf %lf\n", _sigma_cpu, _step, _mix_cpu, _m_cpu);
+    
+    for (size_t inputIndex = (size_t)start; inputIndex < (size_t)end; ++inputIndex) {
+	// read the current slice
+	irtkRealImage slice = _slices[inputIndex];
+
+	// alias the current weight image
+	irtkRealImage &w = _weights[inputIndex];
+
+	// alias the current bias image
+	irtkRealImage &b = _bias[inputIndex];
+
+	// identify scale factor
+	double scale = _scale_cpu[inputIndex];
+	
+	// calculate error
+	for (int i = 0; i < slice.GetX(); i++) {
+	    for (int j = 0; j < slice.GetY(); j++) {
+		//ebbrt::kprintf("%d %d %d %lf %lf %lf %lf\n", i, j, inputIndex, slice(i,j,0), w(i,j,0), b(i,j,0), scale);
+		if (slice(i, j, 0) != -1) {
+		    // bias correct and scale the slice
+		    slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
+
+		    // otherwise the error has no meaning - it is equal to slice
+		    // intensity
+		    if (_simulated_weights[inputIndex](i, j, 0) > 0.99) {
+
+			slice(i, j, 0) -=
+			    _simulated_slices[inputIndex](i, j, 0);
+
+			// sigma and mix
+			double e = slice(i, j, 0);
+			sigma += e * e * w(i, j, 0);
+			mix += w(i, j, 0);
+
+			//_m
+			if (e < min)
+			    min = e;
+			if (e > max)
+			    max = e;
+
+			num++;
+		    }
+		}
+	    }
+	}
+    } // end of loop for a slice inputIndex
+
+    //ebbrt::kprintf("sigma: %f mix:%f num:%f max:%f min:%f\n", sigma, mix, num, max, min);
+    
+    if (mix > 0) {
+	_sigma_cpu = sigma / mix;
+    } else {
+	ebbrt::kprintf("Something went wrong: sigma= %fmix=%f\n", sigma, mix);
+	exit(1);
+    }
+    if (_sigma_cpu < _step * _step / 6.28)
+	_sigma_cpu = _step * _step / 6.28;
+    if (iter > 1)
+	_mix_cpu = mix / num;
+    
+    // Calculate m
+    _m_cpu = 1 / (max - min);
 }
 
 void Scale(std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _weights, std::vector<irtkRealImage>& _bias, std::vector<double>& _scale_cpu, std::vector<irtkRealImage>& _simulated_weights, std::vector<irtkRealImage>& _simulated_slices, int start, int end)
@@ -554,7 +785,7 @@ void Scale(std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _wei
     }
 }
 
-void Bias(std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _weights, std::vector<irtkRealImage>& _bias, std::vector<double>& _scale_cpu, std::vector<irtkRealImage>& _simulated_weights, std::vector<irtkRealImage>& _simulated_slices, bool _global_bias_correction, int start, int end)
+void Bias(std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _weights, std::vector<irtkRealImage>& _bias, std::vector<double>& _scale_cpu, std::vector<irtkRealImage>& _simulated_weights, std::vector<irtkRealImage>& _simulated_slices, bool _global_bias_correction, int start, int end, double& _sigma_bias)
 {
     size_t inputIndex = 0;
     for(inputIndex = (size_t)start; inputIndex != (size_t)end; inputIndex++) {
@@ -650,13 +881,16 @@ void EStep(std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _wei
     irtkRealImage slice, w, b, sim;
     int num = 0;
     vector<double> slice_potential(_slices.size(), 0);
-
+    
     for(inputIndex = (size_t)start; inputIndex != (size_t)end; inputIndex++) {
 	// read the current slice
 	irtkRealImage slice = _slices[inputIndex];
 
 	// read current weight image
-	_weights[inputIndex] = 0;
+	// read the current weight image
+	irtkRealImage &w = _weights[inputIndex];
+
+	//_weights[inputIndex] = 0;
 
 	// alias the current bias image
 	irtkRealImage &b = _bias[inputIndex];
@@ -667,7 +901,7 @@ void EStep(std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _wei
 	double num = 0;
 	// Calculate error, voxel weights, and slice potential
 	for (int i = 0; i < slice.GetX(); i++)
-	    for (int j = 0; j < slice.GetY(); j++)
+	    for (int j = 0; j < slice.GetY(); j++) {
 		if (slice(i, j, 0) != -1) {
 		    // bias correct and scale the slice
 		    slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
@@ -696,25 +930,31 @@ void EStep(std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _wei
 			double weight = g * _mix_cpu /
 			    (g * _mix_cpu +
 			     m * (1 - _mix_cpu));
-			_weights[inputIndex].PutAsDouble(i, j, 0, weight);
+			w.PutAsDouble(i, j, 0, weight);
 			
+			//_weights[inputIndex].PutAsDouble(i, j, 0, weight);
+			//_weights[inputIndex](i, j, 0) = weight;
+			//ebbrt::kprintf("%lf ", weight);
 			// calculate slice potentials
 			if (_simulated_weights[inputIndex](i, j, 0) >
 			    0.99) {
 			    slice_potential[inputIndex] += (1.0 - weight) * (1.0 - weight);
 			    num++;
 			}
-		    } else
-			_weights[inputIndex].PutAsDouble(i, j, 0, 0);
+		    } else {
+			w.PutAsDouble(i, j, 0, 0);//_weights[inputIndex];
+		    }
 		}
-	
+		//ebbrt::kprintf("%d %d %lf\n", i, j, _weights[inputIndex](i,j,0));
+		
+	    }
 	// evaluate slice potential
 	if (num > 0) {
 	    slice_potential[inputIndex] = sqrt(slice_potential[inputIndex] / num);
 	} else
 	    slice_potential[inputIndex] = -1; // slice has no unpadded voxels
     }
-
+    //ebbrt::kprintf("\n");
     // exclude slices identified as having small overlap with ROI, set their
     // potentials to -1
     for (unsigned int i = 0; i < _small_slices.size(); i++)
@@ -858,6 +1098,17 @@ void EStep(std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _wei
     else {
 	_mix_s_cpu = 0.9;
     }
+
+    /*double tempSum = 0.0;
+    for(inputIndex = (size_t)start; inputIndex != (size_t)end; inputIndex++) {
+	// Calculate error, voxel weights, and slice potential
+	for (int i = 0; i < _slices[inputIndex].GetX(); i++) {
+	    for (int j = 0; j < _slices[inputIndex].GetY(); j++) {
+		tempSum += _weights[inputIndex](i, j, 0);
+	    }
+	}
+	}*/
+    //ebbrt::kprintf("tempSum = %lf\n", tempSum);
 }
 
 void InitializeRobustStatistics(double& _sigma_cpu, double& _sigma_s_cpu, double& _mix_cpu, double& _mix_s_cpu, double& _m_cpu, int start, int end, std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _simulated_slices, std::vector<irtkRealImage>& _simulated_weights, std::vector<irtkRealImage>& _simulated_inside, std::vector<bool>& _slice_inside_cpu,  std::vector<double>& _slice_weight_cpu, double& _max_intensity, double& _min_intensity)
@@ -909,6 +1160,7 @@ void InitializeRobustStatistics(double& _sigma_cpu, double& _sigma_s_cpu, double
     // intensities
     _m_cpu = 1 / (2.1 * _max_intensity - 1.9 * _min_intensity);
 
+    //ebbrt::kprintf("%f %f %f %f %f\n", _sigma_cpu, _sigma_s_cpu, _mix_cpu, _mix_s_cpu, _m_cpu);
 }
 
 void SimulateSlices(std::vector<irtkRealImage>& _slices, std::vector<irtkRealImage>& _simulated_slices, std::vector<irtkRealImage>& _simulated_weights, std::vector<irtkRealImage>& _simulated_inside, std::vector<bool>& _slice_inside_cpu, std::vector<SLICECOEFFS>& _volcoeffs, irtkRealImage& _reconstructed, irtkRealImage& _mask, int start, int end)
@@ -931,14 +1183,14 @@ void SimulateSlices(std::vector<irtkRealImage>& _slices, std::vector<irtkRealIma
 	_slice_inside_cpu[inputIndex] = false;
 
 	POINT3D p;
-	for (unsigned int i = 0; i < _slices[inputIndex].GetX();
+	for (unsigned int i = 0; i < (unsigned int)_slices[inputIndex].GetX();
 	     i++)
-	    for (unsigned int j = 0; j < _slices[inputIndex].GetY();
+	    for (unsigned int j = 0; j < (unsigned int)_slices[inputIndex].GetY();
 		 j++)
 		if (_slices[inputIndex](i, j, 0) != -1) {
 		    double weight = 0;
 		    int n = _volcoeffs[inputIndex][i][j].size();
-		    for (unsigned int k = 0; k < n; k++) {
+		    for (unsigned int k = 0; k < (unsigned int)n; k++) {
 			p = _volcoeffs[inputIndex][i][j][k];
 			_simulated_slices[inputIndex](i, j, 0) +=
 			    p.value * _reconstructed(p.x, p.y, p.z);
@@ -1014,16 +1266,17 @@ void GaussianReconstruction(irtkRealImage& _reconstructed, std::vector<int>& _sm
 
     // now find slices with small overlap with ROI and exclude them.
     vector<int> voxel_num_tmp;
-    for (i = 0; i < voxel_num.size(); i++)
+    for (i = 0; i < (int)voxel_num.size(); i++)
 	voxel_num_tmp.push_back(voxel_num[i]);
 
     // find median
     sort(voxel_num_tmp.begin(), voxel_num_tmp.end());
     int median = voxel_num_tmp[round(voxel_num_tmp.size() * 0.5)];
+    //ebbrt::kprintf("median = %d\n", median);
 
     // remember slices with small overlap with ROI
     _small_slices.clear();
-    for (i = 0; i < voxel_num.size(); i++)
+    for (i = 0; i < (int)voxel_num.size(); i++)
 	if (voxel_num[i] < 0.1 * median)
 	    _small_slices.push_back(i);
 }
@@ -1511,7 +1764,8 @@ void EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
       std::vector<irtkRealImage> _simulated_slices(diff);
       std::vector<irtkRealImage> _simulated_weights(diff);
       std::vector<irtkRealImage> _simulated_inside(diff);
-
+      std::vector<int> _stack_index(diff);
+      
       irtkRealImage _slice, _mask, _reconstructed;
       double _quality_factor;
       size_t _max_slices;
@@ -1536,6 +1790,18 @@ void EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
 	  ia& _simulated_inside[k];
       }
 
+      for (int k = 0; k < diff; k++) {
+	  ia& _stack_index[k];
+      }
+
+      int ssend;
+      ia & ssend;
+      std::vector<float> _stack_factor(ssend);
+      for(int k = 0; k < ssend; k ++)
+      {
+	  ia & _stack_factor[k];
+      }
+      
       bool _global_bias_correction;
       ia& _reconstructed& _mask&_max_slices&_global_bias_correction;
       
@@ -1546,16 +1812,16 @@ void EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
       ebbrt::kprintf("start: %d end: %d\n", start, end);
       int iterations = 9; // 9 //2 for Shepp-Logan is enough
       double sigma = 20;
-      double resolution = 0.75;
+      //double resolution = 0.75;
       double lambda = 0.02;
       double delta = 150;
       int levels = 3;
       double lastIterLambda = 0.01;
       int rec_iterations;
-      double averageValue = 700;
-      double smooth_mask = 4;
-      bool global_bias_correction = false;
-      double low_intensity_cutoff = 0.01;
+      //double averageValue = 700;
+      //double smooth_mask = 4;
+      //bool global_bias_correction = false;
+      //double low_intensity_cutoff = 0.01;
       // flag to swich the intensity matching on and off
       bool intensity_matching = true;
       unsigned int rec_iterations_first = 4;
@@ -1589,31 +1855,22 @@ void EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
       _low_intensity_cutoff = 0.01;
       _adaptive = false;
       
-      int _directions[13][3] = { { 1, 0, -1 },
-				 { 0, 1, -1 },
-				 { 1, 1, -1 },
-				 { 1, -1, -1 },
-				 { 1, 0, 0 },
-				 { 0, 1, 0 },
-				 { 1, 1, 0 },
-				 { 1, -1, 0 },
-				 { 1, 0, 1 },
-				 { 0, 1, 1 },
-				 { 1, 1, 1 },
-				 { 1, -1, 1 },
-				 { 0, 0, 1 } };
 
       InitializeEM(_slices, _weights, _bias, _slice_weight_cpu, _scale_cpu, _max_intensity, _min_intensity);
 
       for(int iter = 0; iter < iterations; iter++) {
-	  ebbrt::kprintf("iter = %d\n", iter);
+	  ebbrt::kprintf("total iter = %d\n", iter);
 	  if (iter > 0) {
 	      SliceToVolumeRegistration(_slices_regCertainty, _reconstructed
 					, _slices, _transformations, start, end);
+	      ebbrt::kprintf("SliceToVolumeRegistration\n");
 	  }
 	  
 	  if (iter == (iterations - 1))
+	  {
 	      SetSmoothingParameters(delta, lastIterLambda, _lambda, _delta, _alpha);
+	      ebbrt::kprintf("SetSmoothingParameters\n");
+	  }
 	  else {
 	      double l = lambda;
 	      for (i = 0; i < levels; i++) {
@@ -1621,6 +1878,7 @@ void EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
 		      SetSmoothingParameters(delta, l, _lambda, _delta, _alpha);
 		  l *= 2;
 	      }
+	      ebbrt::kprintf("SetSmoothingParameters\n");
 	  }
 
 	  // Use faster reconstruction during iterations and slower for final
@@ -1665,37 +1923,63 @@ void EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
 	  // reconstruction iterations
 	  i = 0;
 	  for (i = 0; i < rec_iterations; i++) {
+	      ebbrt::kprintf("\trecon iter = %d\n", i);
 	      if (intensity_matching) {
 		  // calculate bias fields
 		  if (sigma > 0) {
-		      Bias(_slices, _weights, _bias, _scale_cpu, _simulated_weights, _simulated_slices, _global_bias_correction);
+		      Bias(_slices, _weights, _bias, _scale_cpu, _simulated_weights, _simulated_slices, _global_bias_correction, start, end, _sigma_bias);
+		      ebbrt::kprintf("\t\tBias\n");
 		  }
 		  
 		  // calculate scales
-		  Scale(_slices, _weights, _bias, _scale_cpu, _simulated_weights, _simulated_slices, start, end, _simulated_slices, _volcoeffs, _slice_weight_cpu);
+		  Scale(_slices, _weights, _bias, _scale_cpu, _simulated_weights, _simulated_slices, start, end);
+		  ebbrt::kprintf("\t\t Scale\n");
 	      }
 
 	      // MStep and update reconstructed volume
-	      Superresolution(i + 1, _min_intensity, _max_intensity, _reconstructed, _global_bias_correction, _slices, _weights, _bias, _scale_cpu, _simulated_slices, _volcoeffs, _slice_weight_cpu, start, end, _confidence_map, _adaptive, _directions, _alpha, _lambda, _delta, _mask, _low_intensity_cutoff);
-      
+	      Superresolution(i + 1, _min_intensity, _max_intensity, _reconstructed, _global_bias_correction, _slices, _weights, _bias, _scale_cpu, _simulated_slices, _volcoeffs, _slice_weight_cpu, start, end, _confidence_map, _adaptive, _alpha, _lambda, _delta, _mask, _low_intensity_cutoff, _sigma_bias);
+	      ebbrt::kprintf("\t\t Superresolution \n");
+
 	      if (intensity_matching) {
 		  if ((sigma > 0) && (!_global_bias_correction))
+		  {
 		      NormaliseBias(i, _volume_weights, _mask, _sigma_bias, _reconstructed, _slices, _bias, _scale_cpu, _volcoeffs, start, end);
+		      ebbrt::kprintf("\t\tNormaliseBias\n");
+		  }
 	      }
 
 	      // Simulate slices (needs to be done
 	      // after the update of the reconstructed volume)
 	      SimulateSlices(_slices, _simulated_slices, _simulated_weights, _simulated_inside, _slice_inside_cpu, _volcoeffs, _reconstructed, _mask, start, end);
+	      ebbrt::kprintf("\t\tSimulateSlices\n");
 
-	      reconstruction.MStep(i + 1);
-	      reconstruction.EStep();
+	      MStep(i + 1, _slices, _weights, _bias, _scale_cpu, _simulated_weights, _simulated_slices, start, end, _sigma_cpu, _step, _mix_cpu, _m_cpu);
+	      ebbrt::kprintf("\t\tMStep\n");
+
+	      EStep(_slices, _weights, _bias, _scale_cpu, _volcoeffs, _simulated_slices, _simulated_weights, _sigma_cpu, _m_cpu, _mix_cpu, _small_slices, _slice_weight_cpu, _mean_s_cpu, _mean_s2_cpu, _sigma_s_cpu, _sigma_s2_cpu, _mix_s_cpu, start, end, _step);
+	      ebbrt::kprintf("\t\tEStep\n");
+
 	  } // end of reconstruction iterations
-
+	  
+	  // Mask reconstructed image to ROI given by the mask
+	  MaskVolume(_reconstructed, _mask);
+	  ebbrt::kprintf("MaskVolume\n");
+	  Evaluate(iter, _slices, _slice_weight_cpu, _slice_inside_cpu);
+	  ebbrt::kprintf("Evaluate\n");
       }
-            
-      std::string ts = "E";
-      ebbrt::kprintf("ts length: %d\n", ts.length());
+
+      RestoreSliceIntensities(_slices, _stack_index, _stack_factor);
+      ScaleVolume(_reconstructed, _slices, _weights, _simulated_slices, _simulated_weights, _slice_weight_cpu); 
       
+      
+
+      std::ostringstream ofs;
+      boost::archive::text_oarchive oa(ofs);
+      oa&_reconstructed;
+      
+      std::string ts = "E "+ofs.str();;
+      ebbrt::kprintf("ts length: %d\n", ts.length());
+
       Print(ts.c_str());
   }
 }

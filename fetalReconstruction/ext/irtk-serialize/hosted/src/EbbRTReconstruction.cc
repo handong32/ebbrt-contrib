@@ -20,10 +20,22 @@ void EbbRTReconstruction::Print(ebbrt::Messenger::NetworkId nid, const char* str
 void EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
                                     std::unique_ptr<ebbrt::IOBuf>&& buffer) {
 
-  auto output = std::string(reinterpret_cast<const char*>(buffer->Data()));
-  std::cout << "Received ip: " << nid.ToString() << std::endl;
-  std::cout << output << std::endl;
-  ebbrt::event_manager->ActivateContext(std::move(*emec));
+    auto output = std::string(reinterpret_cast<const char*>(buffer->Data()));
+    std::cout << "Received ip: " << nid.ToString() << std::endl;
+    
+    if(output[0] == 'E') {
+	ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
+	char* t = (char*)(dp.Get(buffer->ComputeChainDataLength()));
+	membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
+	std::istream stream{&sb};
+	boost::archive::text_iarchive ia(stream);
+	
+	std::cout << "Parsing it back, received: "
+		  << buffer->ComputeChainDataLength() << " bytes" << std::endl;
+	
+	ia& reconstructor->_reconstructed;
+	ebbrt::event_manager->ActivateContext(std::move(*emec));
+    }
 }
 
 void EbbRTReconstruction::runRecon() {
@@ -76,6 +88,17 @@ void EbbRTReconstruction::runRecon() {
 
 	for (int j = start; j < end; j++) {
 	    oa& reconstructor->_simulated_inside[j];
+	}
+
+	for (int j = start; j < end; j++) {
+	    oa& reconstructor->_stack_index[j];
+	}
+	
+	size_t mslices = reconstructor->_stack_factor.size();
+	oa&mslices;
+	for(int j = 0; j < mslices; j++)
+	{
+	    oa& reconstructor->_stack_factor[j];
 	}
 
 	oa& reconstructor->_reconstructed& reconstructor->_mask &max_slices & reconstructor->_global_bias_correction;
