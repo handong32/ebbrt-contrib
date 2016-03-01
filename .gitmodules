@@ -1,3 +1,9 @@
 [submodule "fetalReconstruction/ext/irtk-serialize/hosted/build/lib"]
 	path = fetalReconstruction/ext/irtk-serialize/hosted/build/lib
 	url = https://github.com/handong32/EbbRT-irtk-libs.git
+[submodule "fetalReconstruction/ext/irtk-serialize/baremetal/ext/gsl"]
+	path = fetalReconstruction/ext/irtk-serialize/baremetal/ext/gsl
+	url = https://github.com/handong32/EbbRT-gsl-libs.git
+[submodule "fetalReconstruction/ext/irtk-serialize/baremetal/ext/boost"]
+	path = fetalReconstruction/ext/irtk-serialize/baremetal/ext/boost
+	url = https://github.com/handong32/EbbRT-boost.git
