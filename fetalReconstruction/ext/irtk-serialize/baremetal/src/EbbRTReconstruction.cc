@@ -315,8 +315,7 @@ void ScaleVolume()
 
     // calculate scale for the volume
     double scale = scalenum / scaleden;
-    ebbrt::kprintf("Volume scale CPU: %f scalenum:%f scaleden:%f \n", scale, scalenum, scaleden);
-
+    
     irtkRealPixel *ptr = _reconstructed.GetPointerToVoxels();
     for (i = 0; i < _reconstructed.GetNumberOfVoxels(); i++) {
 	if (*ptr > 0)
@@ -332,11 +331,10 @@ void RestoreSliceIntensities()
     double factor;
     irtkRealPixel *p;
 
-    //ebbrt::kprintf("factor = ");
     for (inputIndex = 0; inputIndex < (unsigned int)_slices.size(); inputIndex++) {
 	// calculate scaling factor
 	factor = _stack_factor[_stack_index[inputIndex]]; //_average_value;
-	//ebbrt::kprintf(" %f ", factor);
+
 	// read the pointer to current slice
 	p = _slices[inputIndex].GetPointerToVoxels();
 	for (i = 0; i < _slices[inputIndex].GetNumberOfVoxels(); i++) {
@@ -345,42 +343,30 @@ void RestoreSliceIntensities()
 	    p++;
 	}
     }
-    //ebbrt::kprintf("\n");
 }
 
 void Evaluate(int iter) {
-    //cout << "Iteration " << iter << ": " << endl;
-
-//    ebbrt::kprintf("Included slices CPU: ");
     int sum = 0;
     unsigned int i;
     for (i = 0; i < _slices.size(); i++) {
 	if ((_slice_weight_cpu[i] >= 0.5) && (_slice_inside_cpu[i])) {
-//	    ebbrt::kprintf("%d ",i);
 	    sum++;
 	}
     }
-    //  ebbrt::kprintf("\nTotal: %d\n", sum);
 
-    //ebbrt::kprintf("Excluded slices CPU: ");
     sum = 0;
     for (i = 0; i < _slices.size(); i++) {
 	if ((_slice_weight_cpu[i] < 0.5) && (_slice_inside_cpu[i])) {
-//	    ebbrt::kprintf("%d ",i);
 	    sum++;
 	}
     }
-    //ebbrt::kprintf("\nTotal CPU: %d\n", sum);
 
-    //  ebbrt::kprintf("Outside slices CPU: ");
     sum = 0;
     for (i = 0; i < _slices.size(); i++) {
 	if (!(_slice_inside_cpu[i])) {
-//	    ebbrt::kprintf("%d ",i);
 	    sum++;
 	}
     }
-    //  ebbrt::kprintf("\nTotal CPU: %d\n", sum);
 }
 
 void MaskVolume() {
@@ -414,7 +400,6 @@ void SetSmoothingParameters(double delta, double lambda)
     _lambda = lambda*delta*delta;
     _alpha = 0.05 / lambda;
     if (_alpha > 1) _alpha = 1;
-    ebbrt::kprintf("_delta = %f _lambda = %f _alpha = %f\n", _delta, _lambda, _alpha);
 }
 
 void ParallelAdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
@@ -758,21 +743,14 @@ void Superresolution(int iter, int start, int end)
 		    _reconstructed(i, j, k) = _max_intensity * 1.1;
 	    }
 
-    ebbrt::kprintf("## original = %f\n", sumOneImage(original));
-    ebbrt::kprintf("## _reconstructed = %f\n", sumOneImage(_reconstructed));
-    
     // Smooth the reconstructed image
     AdaptiveRegularization(iter, original);
-    ebbrt::kprintf("### _reconstructed = %f\n", sumOneImage(_reconstructed));
 
     // Remove the bias in the reconstructed volume compared to previous iteration
     if (_global_bias_correction)
     {
 	BiasCorrectVolume(original);
     }
-    
-    //_confidence_map, _reconstructed, _mask
-    ebbrt::kprintf("\n*********\n_adaptive = %d\naddon = %f\n_confidence_map = %f\n_reconstructed = %f\n_mask = %f\n**********\n", _adaptive, sumOneImage(addon), sumOneImage(_confidence_map), sumOneImage(_reconstructed), sumOneImage(_mask));
 }
 
 void MStep(int iter, int start, int end)
@@ -782,8 +760,6 @@ void MStep(int iter, int start, int end)
     double num = 0;
     double min = voxel_limits<irtkRealPixel>::max();
     double max = voxel_limits<irtkRealPixel>::min();
-    
-    //ebbrt::kprintf("%lf %lf %lf %lf\n", _sigma_cpu, _step, _mix_cpu, _m_cpu);
     
     for (size_t inputIndex = (size_t)start; inputIndex < (size_t)end; ++inputIndex) {
 	// read the current slice
@@ -801,7 +777,7 @@ void MStep(int iter, int start, int end)
 	// calculate error
 	for (int i = 0; i < slice.GetX(); i++) {
 	    for (int j = 0; j < slice.GetY(); j++) {
-		//ebbrt::kprintf("%d %d %d %lf %lf %lf %lf\n", i, j, inputIndex, slice(i,j,0), w(i,j,0), b(i,j,0), scale);
+
 		if (slice(i, j, 0) != -1) {
 		    // bias correct and scale the slice
 		    slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
@@ -831,7 +807,6 @@ void MStep(int iter, int start, int end)
 	}
     } // end of loop for a slice inputIndex
 
-    //ebbrt::kprintf("sigma: %f mix:%f num:%f max:%f min:%f\n", sigma, mix, num, max, min);
     
     if (mix > 0) {
 	_sigma_cpu = sigma / mix;
@@ -884,9 +859,6 @@ void Scale(int start, int end)
 	else
 	    _scale_cpu[inputIndex] = 1;
     }
-
-    ebbrt::kprintf("\n_scale_cpu = %f\n\n", sumVec(_scale_cpu));
-
 }
 
 void Bias(int start, int end)
@@ -1038,7 +1010,6 @@ void parallelEStep(vector<double>& slice_potential)
 			 * not getting a reference back?
 			 ***************/
 			_weights[inputIndex](i, j, 0) = weight;
-			//ebbrt::kprintf("%lf ", weight);
 			// calculate slice potentials
 			if (_simulated_weights[inputIndex](i, j, 0) >
 			    0.99) {
@@ -1061,7 +1032,6 @@ void parallelEStep(vector<double>& slice_potential)
 
 void EStep(int start, int end)
 {
-    ebbrt::kprintf("\n**************\nEStep\n");
     size_t inputIndex;
     irtkRealImage slice, w, b, sim;
     int num = 0;
@@ -1212,15 +1182,10 @@ void EStep(int start, int end)
     else {
 	_mix_s_cpu = 0.9;
     }
-
-    ebbrt::kprintf("_mean_s_cpu=%f _mean_s2_cpu=%f _sigma_s_cpu=%f _sigma_s2_cpu=%f _mix_s_cpu=%f\n", _mean_s_cpu, _mean_s2_cpu, _sigma_s_cpu, _sigma_s2_cpu, _mix_s_cpu);
-    ebbrt::kprintf("_slice_weight_cpu = %f\nslice_potential = %f\n _weights = %f\n****************\n", sumVec(_slice_weight_cpu), sumVec(slice_potential), sumImage(_weights));
 }
 
 void InitializeRobustStatistics(int start, int end)
 {
-    ebbrt::kprintf("\n************\nInitializeRobustStatistics\n");
-    
     // Initialise parameter of EM robust statistics
     int i, j;
     irtkRealImage slice, sim;
@@ -1267,15 +1232,10 @@ void InitializeRobustStatistics(int start, int end)
     // Initialise value for uniform distribution according to the range of
     // intensities
     _m_cpu = 1 / (2.1 * _max_intensity - 1.9 * _min_intensity);
-    
-    ebbrt::kprintf("_sigma_cpu=%f _sigma_s_cpu=%f _mix_cpu=%f _mix_s_cpu=%f _m_cpu=%f\n", _sigma_cpu,_sigma_s_cpu,_mix_cpu,_mix_s_cpu,_m_cpu);
-    ebbrt::kprintf("_simulated_inside = %f\n_simulated_weights = %f\n_slice_weight_cpu =%f\n", sumImage(_simulated_inside), sumImage(_simulated_weights), sumVec(_slice_weight_cpu)); 
-
 }
 
 void SimulateSlices(int start, int end)
 {
-    ebbrt::kprintf("\n******** \nSimulateSlices \n");
     size_t inputIndex = 0;
     for (inputIndex = (size_t)start; inputIndex != (size_t)end; inputIndex++) {
 	// Calculate simulated slice
@@ -1317,12 +1277,6 @@ void SimulateSlices(int start, int end)
 		    }
 		}
     }
-    
-    ebbrt::kprintf("_simulated_inside = %f\n", sumImage(_simulated_inside));
-    ebbrt::kprintf("_simulated_slices = %f\n", sumImage(_simulated_slices));
-    ebbrt::kprintf("_simulated_weights = %f\n",sumImage(_simulated_weights));
-    ebbrt::kprintf("_slice_inside_cpu = %d\n******\n", sumBool(_slice_inside_cpu));
-    
 }
 
 
@@ -1396,10 +1350,6 @@ void GaussianReconstruction()
     for (i = 0; i < (int)voxel_num.size(); i++)
 	if (voxel_num[i] < 0.1 * median)
 	    _small_slices.push_back(i);
-
-    ebbrt::kprintf("median = %d\n", median);
-    ebbrt::kprintf("_reconstructed = %f\n", sumOneImage(_reconstructed));
-    ebbrt::kprintf("_small_slices = %d\n", sumInt(_small_slices));
 }
 
 void InitializeEM() {
@@ -1441,7 +1391,6 @@ void InitializeEM() {
 }
 
 void InitializeEMValues() {
-    ebbrt::kprintf("\n***********\nInitializeEMValue\n");
     for (unsigned int i = 0; i < _slices.size(); i++) {
 	// Initialise voxel weights and bias values
 	irtkRealPixel *pw = _weights[i].GetPointerToVoxels();
@@ -1466,12 +1415,6 @@ void InitializeEMValues() {
 	// Initialise scaling factors for intensity matching
 	_scale_cpu[i] = 1;
     }
-
-    ebbrt::kprintf("_weights = %f \n", sumImage(_weights));
-    ebbrt::kprintf("_bias = %f\n", sumImage(_bias));
-    ebbrt::kprintf("_slices = %f\n", sumImage(_slices));
-    ebbrt::kprintf("_slice_weight_cpu = %lf\n", sumVec(_slice_weight_cpu));
-    ebbrt::kprintf("_scale_cpu = %lf\n**********\n", sumVec(_scale_cpu));
 }
 
 void SliceToVolumeRegistration(int start, int end)
@@ -1525,8 +1468,6 @@ void SliceToVolumeRegistration(int start, int end)
 }
 
 void CoeffInit(int start, int end) {
-    ebbrt::kprintf("\n***********\nCoeffInit\n");
-    
     _volcoeffs.clear();
     _volcoeffs.resize(_slices.size());
     
@@ -1832,8 +1773,6 @@ void CoeffInit(int start, int end) {
     }
 
     _average_volume_weight = sum / num;
-    ebbrt::kprintf("_average_volume_weight = %lf\n***********\n", _average_volume_weight);
-
 }
 
 void EbbRTReconstruction::doNothing() { ebbrt::kprintf("doNothing\n"); }
@@ -1908,7 +1847,6 @@ void EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
 
       int ssend;
       ia & ssend;
-      ebbrt::kprintf("ssend: %d\n", ssend);
       _stack_factor.resize(ssend);
       for(int k = 0; k < ssend; k ++)
       {
@@ -1956,10 +1894,10 @@ void EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
       
       InitializeEM();
 
+      /************************* START RUN ***********************************/
       struct timeval tstart, tend;
-      gettimeofday(&tstart, NULL);
+      gettimeofday(&tstart, NULL);      
       
-
       for (int iter = 0; iter < iterations; iter++) {
 	  // perform slice-to-volume registrations - skip the first iteration
 	  if (iter > 0) {
@@ -2048,121 +1986,6 @@ void EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
 
       gettimeofday(&tend, NULL);
       ebbrt::kprintf("compute time: %lf seconds\n", (tend.tv_sec - tstart.tv_sec) + ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
-
-      /*for(int iter = 0; iter < iterations; iter++) {
-	  ebbrt::kprintf("total iter = %d\n", iter);
-	  if (iter > 0) {
-	      SliceToVolumeRegistration(_slices_regCertainty, _reconstructed
-					, _slices, _transformations, start, end);
-	      ebbrt::kprintf("SliceToVolumeRegistration\n");
-	  }
-	  
-	  if (iter == (iterations - 1))
-	  {
-	      SetSmoothingParameters(delta, lastIterLambda, _lambda, _delta, _alpha);
-	      ebbrt::kprintf("SetSmoothingParameters\n");
-	  }
-	  else {
-	      double l = lambda;
-	      for (i = 0; i < levels; i++) {
-		  if (iter == iterations * (levels - i - 1) / levels)
-		      SetSmoothingParameters(delta, l, _lambda, _delta, _alpha);
-		  l *= 2;
-	      }
-	      ebbrt::kprintf("SetSmoothingParameters\n");
-	  }
-
-	  // Use faster reconstruction during iterations and slower for final
-	  // reconstruction
-	  if (iter < (iterations - 1)) {
-	      _quality_factor = 1;
-	  } else {
-	      _quality_factor = 2;
-	  }
-
-	  // Initialise values of weights, scales and bias fields
-	  InitializeEMValues(_slices, _weights, _bias, _slice_weight_cpu, _scale_cpu);
-	  ebbrt::kprintf("InitializeEMValues\n");
-	  
-          // Calculate matrix of transformation between voxels of slices and volume
-	  CoeffInit(_mask, _reconstructed, _quality_factor, _max_slices,
-		    _slices, _transformations, _volcoeffs,
-		    _slice_inside_cpu, start, end, _volume_weights);
-	  ebbrt::kprintf("CoeffInit\n");
-
-	  // Initialize reconstructed image with Gaussian weighted reconstruction
-	  GaussianReconstruction(_reconstructed, _small_slices, _slices, _bias, _scale_cpu, _volcoeffs, _volume_weights);
-	  ebbrt::kprintf("GaussianReconstruction\n");
-
-	   // Simulate slices (needs to be done after Gaussian reconstruction)
-	  SimulateSlices(_slices, _simulated_slices, _simulated_weights, _simulated_inside, _slice_inside_cpu, _volcoeffs, _reconstructed, _mask, start, end);    
-	  ebbrt::kprintf("SimulateSlices\n");
-
-	  InitializeRobustStatistics(_sigma_cpu, _sigma_s_cpu, _mix_cpu, _mix_s_cpu, _m_cpu, start, end, _slices, _simulated_slices, _simulated_weights, _simulated_inside, _slice_inside_cpu, _slice_weight_cpu, _max_intensity, _min_intensity);
-	  ebbrt::kprintf("InitializeRobustStatistics\n");
-
-	  EStep(_slices, _weights, _bias, _scale_cpu, _volcoeffs, _simulated_slices, _simulated_weights, _sigma_cpu, _m_cpu, _mix_cpu, _small_slices, _slice_weight_cpu, _mean_s_cpu, _mean_s2_cpu, _sigma_s_cpu, _sigma_s2_cpu, _mix_s_cpu, start, end, _step);
-	  ebbrt::kprintf("EStep\n");
-
-	  // number of reconstruction iterations
-	  if (iter == (iterations - 1)) {
-	      rec_iterations = rec_iterations_last;
-	  } else {
-	      rec_iterations = rec_iterations_first;
-	  }
-
-	  // reconstruction iterations
-	  i = 0;
-	  for (i = 0; i < rec_iterations; i++) {
-	      ebbrt::kprintf("\trecon iter = %d\n", i);
-	      if (intensity_matching) {
-		  // calculate bias fields
-		  if (sigma > 0) {
-		      Bias(_slices, _weights, _bias, _scale_cpu, _simulated_weights, _simulated_slices, _global_bias_correction, start, end, _sigma_bias);
-		      ebbrt::kprintf("\t\tBias\n");
-		  }
-		  
-		  // calculate scales
-		  Scale(_slices, _weights, _bias, _scale_cpu, _simulated_weights, _simulated_slices, start, end);
-		  ebbrt::kprintf("\t\t Scale\n");
-	      }
-
-	      // MStep and update reconstructed volume
-	      Superresolution(i + 1, _min_intensity, _max_intensity, _reconstructed, _global_bias_correction, _slices, _weights, _bias, _scale_cpu, _simulated_slices, _volcoeffs, _slice_weight_cpu, start, end, _confidence_map, _adaptive, _alpha, _lambda, _delta, _mask, _low_intensity_cutoff, _sigma_bias);
-	      ebbrt::kprintf("\t\t Superresolution \n");
-
-	      if (intensity_matching) {
-		  if ((sigma > 0) && (!_global_bias_correction))
-		  {
-		      NormaliseBias(i, _volume_weights, _mask, _sigma_bias, _reconstructed, _slices, _bias, _scale_cpu, _volcoeffs, start, end);
-		      ebbrt::kprintf("\t\tNormaliseBias\n");
-		  }
-	      }
-
-	      // Simulate slices (needs to be done
-	      // after the update of the reconstructed volume)
-	      SimulateSlices(_slices, _simulated_slices, _simulated_weights, _simulated_inside, _slice_inside_cpu, _volcoeffs, _reconstructed, _mask, start, end);
-	      ebbrt::kprintf("\t\tSimulateSlices\n");
-
-	      MStep(i + 1, _slices, _weights, _bias, _scale_cpu, _simulated_weights, _simulated_slices, start, end, _sigma_cpu, _step, _mix_cpu, _m_cpu);
-	      ebbrt::kprintf("\t\tMStep\n");
-
-	      EStep(_slices, _weights, _bias, _scale_cpu, _volcoeffs, _simulated_slices, _simulated_weights, _sigma_cpu, _m_cpu, _mix_cpu, _small_slices, _slice_weight_cpu, _mean_s_cpu, _mean_s2_cpu, _sigma_s_cpu, _sigma_s2_cpu, _mix_s_cpu, start, end, _step);
-	      ebbrt::kprintf("\t\tEStep\n");
-
-	  } // end of reconstruction iterations
-	  
-	  // Mask reconstructed image to ROI given by the mask
-	  MaskVolume(_reconstructed, _mask);
-	  ebbrt::kprintf("MaskVolume\n");
-	  Evaluate(iter, _slices, _slice_weight_cpu, _slice_inside_cpu);
-	  ebbrt::kprintf("Evaluate\n");
-      }
-      
-      RestoreSliceIntensities(_slices, _stack_index, _stack_factor);
-      ScaleVolume(_reconstructed, _slices, _weights, _simulated_slices, _simulated_weights, _slice_weight_cpu); 
-      */
-      
 
       std::ostringstream ofs;
       boost::archive::text_oarchive oa(ofs);
