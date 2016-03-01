@@ -977,7 +977,7 @@ public:
 
 void irtkReconstruction::SimulateSlices() {
     //if (_debug)
-    cout << " ** Simulating slices. ** " << endl;
+    //cout << " ** Simulating slices. ** " << endl;
     
     ParallelSimulateSlices parallelSimulateSlices(this);
     parallelSimulateSlices();
@@ -999,10 +999,10 @@ void irtkReconstruction::SimulateSlices() {
               reconstructor->_simulated_weights[inputIndex](i, j, 0) = weight;
  
    */
-  std::cout << "_simulated_inside = " << sumImage(_simulated_inside) << std::endl;
-  std::cout << "_simulated_slices = " << sumImage(_simulated_slices) << std::endl;
-  std::cout << "_simulated_weights = " << sumImage(_simulated_weights) << std::endl;
-  std::cout << "_slice_inside_cpu = " << sumBool(_slice_inside_cpu) << std::endl << std::endl;
+  //std::cout << "_simulated_inside = " << sumImage(_simulated_inside) << std::endl;
+  //std::cout << "_simulated_slices = " << sumImage(_simulated_slices) << std::endl;
+  //std::cout << "_simulated_weights = " << sumImage(_simulated_weights) << std::endl;
+  //std::cout << "_slice_inside_cpu = " << sumBool(_slice_inside_cpu) << std::endl << std::endl;
 }
 
 void irtkReconstruction::SimulateSlicesGPU() {
@@ -2021,7 +2021,7 @@ public:
 };
 
 void irtkReconstruction::CoeffInit(char **argv) {
-    cout << "CoeffInit ";
+    //cout << "CoeffInit ";
 
   // clear slice-volume matrix from previous iteration
   _volcoeffs.clear();
@@ -2069,7 +2069,7 @@ void irtkReconstruction::CoeffInit(char **argv) {
   }
   _average_volume_weight = sum / num;
 
-  cout << "Average volume weight is " << _average_volume_weight << endl;
+//  cout << "Average volume weight is " << _average_volume_weight << endl;
   
 } // end of CoeffInit()
 
@@ -2096,7 +2096,7 @@ void irtkReconstruction::GaussianReconstruction() {
   // vector<int> voxel_num_;
   // reconstructionGPU->GaussianReconstruction(voxel_num_);
 
-  cout << "Gaussian reconstruction ";
+//  cout << "Gaussian reconstruction ";
   unsigned int inputIndex;
   int i, j, k, n;
   irtkRealImage slice;
@@ -2187,9 +2187,9 @@ void irtkReconstruction::GaussianReconstruction() {
     cout << endl;
   }
 
-  std::cout << "median = " << median << std::endl;;
-  std::cout << "_reconstructed = " << sumOneImage(_reconstructed) << std::endl;
-  std::cout << "_small_slices = " << sumInt(_small_slices) << std::endl;
+  //std::cout << "median = " << median << std::endl;;
+  //std::cout << "_reconstructed = " << sumOneImage(_reconstructed) << std::endl;
+  //std::cout << "_small_slices = " << sumInt(_small_slices) << std::endl;
   
 }
 
@@ -2282,7 +2282,7 @@ void irtkReconstruction::InitializeEMGPU() {
 }
 
 void irtkReconstruction::InitializeEMValues() {
-    std::cout << "InitializeEMValues" << std::endl;
+    //std::cout << "InitializeEMValues" << std::endl;
     
     for (int i = 0; i < _slices.size(); i++) {
     // Initialise voxel weights and bias values
@@ -2309,11 +2309,11 @@ void irtkReconstruction::InitializeEMValues() {
     _scale_cpu[i] = 1;
   }
 
-  std::cout << "_weights = " << sumImage(_weights) << std::endl;
-  std::cout << "_bias = " << sumImage(_bias) << std::endl;
-  std::cout << "_slices = " << sumImage(_slices) << std::endl;
-  std::cout << "_slice_weight_cpu = " << sumVec(_slice_weight_cpu) << std::endl;
-  std::cout << "_scale_cpu = " << sumVec(_scale_cpu) << std::endl;
+//  std::cout << "_weights = " << sumImage(_weights) << std::endl;
+    //std::cout << "_bias = " << sumImage(_bias) << std::endl;
+    //std::cout << "_slices = " << sumImage(_slices) << std::endl;
+    //std::cout << "_slice_weight_cpu = " << sumVec(_slice_weight_cpu) << std::endl;
+    //std::cout << "_scale_cpu = " << sumVec(_scale_cpu) << std::endl;
 
 }
 
@@ -2356,7 +2356,7 @@ void irtkReconstruction::InitializeRobustStatisticsGPU() {
 
 void irtkReconstruction::InitializeRobustStatistics() {
     //if (_debug)
-    cout << "InitializeRobustStatistics" << endl;
+    //cout << "InitializeRobustStatistics" << endl;
 
   // Initialise parameter of EM robust statistics
   int i, j;
@@ -2730,7 +2730,7 @@ void irtkReconstruction::EStep() {
   // EStep performs calculation of voxel-wise and slice-wise posteriors
   // (weights)
   //if (_debug)
-    cout << "** EStep:  ** " << endl;
+//    cout << "** EStep:  ** " << endl;
 
   unsigned int inputIndex;
   irtkRealImage slice, w, b, sim;
@@ -3375,7 +3375,7 @@ void irtkReconstruction::Superresolution(int iter) {
     _confidence_map.Write(buffer);
   }
 
-  std::printf("_adaptive = %d\naddon = %f\n_confidence_map = %f\n_reconstructed = %f\n_mask = %f\n\n", _adaptive, sumOneImage(addon), sumOneImage(_confidence_map), sumOneImage(_reconstructed), sumOneImage(_mask));
+//  std::printf("_adaptive = %d\naddon = %f\n_confidence_map = %f\n_reconstructed = %f\n_mask = %f\n\n", _adaptive, sumOneImage(addon), sumOneImage(_confidence_map), sumOneImage(_reconstructed), sumOneImage(_mask));
 
 }
 

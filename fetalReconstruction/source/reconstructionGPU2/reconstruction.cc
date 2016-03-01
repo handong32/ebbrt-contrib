@@ -1,4 +1,4 @@
-#define EBB
+//#define EBB
 /*=========================================================================
 Library   : Image Registration Toolkit (IRTK)
 Copyright : Imperial College, Department of Computing
