@@ -42,9 +42,7 @@ void EbbRTReconstruction::runRecon() {
     // get the event manager context and save it
     ebbrt::EventManager::EventContext context;
     
-    //irtkImageAttributes attr = reconstructor->_reconstructed.GetImageAttributes();
     size_t max_slices = reconstructor->_slices.size();
-    size_t inputIndex = 0;
     
     int start, end, factor;
 
@@ -96,7 +94,7 @@ void EbbRTReconstruction::runRecon() {
 	
 	size_t mslices = reconstructor->_stack_factor.size();
 	oa&mslices;
-	for(int j = 0; j < mslices; j++)
+	for(unsigned int j = 0; j < mslices; j++)
 	{
 	    oa& reconstructor->_stack_factor[j];
 	}
