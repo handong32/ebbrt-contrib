@@ -1,3 +1,4 @@
+#define EBB
 /*=========================================================================
 Library   : Image Registration Toolkit (IRTK)
 Copyright : Imperial College, Department of Computing
@@ -58,6 +59,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fstream>
 #include <iostream>
 #include <time.h>
+#include <sys/time.h>
 #include <boost/program_options.hpp>
 
 #include <utils.h>
@@ -769,6 +771,7 @@ int main(int argc, char **argv) {
   
   /**************************************8START *****************/
   // interleaved registration-reconstruction iterations
+#ifdef EBB
   auto bindir =
       boost::filesystem::system_complete(argv[0]).parent_path() /
       "/../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32";
@@ -810,20 +813,34 @@ int main(int argc, char **argv) {
   c.Deactivate();
   c.Run();
   c.Reset();
+  
+#else
+//  std::printf("lambda = %f delta = %f intensity_matching = %d useCPU = %d disableBiasCorr = %d sigma = %f global_bias_correction = %d lastIterLambda = %f iterations = %d\n", lambda, delta, intensity_matching, useCPU, disableBiasCorr, sigma, global_bias_correction, lastIterLambda, iterations);
+  struct timeval tstart, tend;
+  gettimeofday(&tstart, NULL);
 
+  iterations = 1;
   for (int iter = 0; iter < iterations; iter++) {
+      std::cout << "iter = " << iter << std::endl;
+      
     // perform slice-to-volume registrations - skip the first iteration
     if (iter > 0) {
 	reconstruction.SliceToVolumeRegistration();
+	//std::cout << "reconstruction.SliceToVolumeRegistration();" << std::endl;
     }
 
     if (iter == (iterations - 1))
-      reconstruction.SetSmoothingParameters(delta, lastIterLambda);
+    {
+	reconstruction.SetSmoothingParameters(delta, lastIterLambda);
+	//std::cout << "reconstruction.SetSmoothingParameters(delta, lastIterLambda);" << std::endl;
+    }
     else {
       double l = lambda;
       for (i = 0; i < levels; i++) {
-        if (iter == iterations * (levels - i - 1) / levels)
-          reconstruction.SetSmoothingParameters(delta, l);
+	  if (iter == iterations * (levels - i - 1) / levels) {
+	      reconstruction.SetSmoothingParameters(delta, l);
+	      //std::cout << "reconstruction.SetSmoothingParameters(delta, l);" << std::endl;
+	  }
         l *= 2;
       }
     }
@@ -831,24 +848,32 @@ int main(int argc, char **argv) {
     // Use faster reconstruction during iterations and slower for final
     // reconstruction
     if (iter < (iterations - 1)) {
-      reconstruction.SpeedupOn();
+	reconstruction.SpeedupOn();
     } else {
-      reconstruction.SpeedupOff();
+	reconstruction.SpeedupOff();
     }
 
     // Initialise values of weights, scales and bias fields
     reconstruction.InitializeEMValues();
-    
+    //std::cout << "reconstruction.InitializeEMValues();" << std::endl;
+
     // Calculate matrix of transformation between voxels of slices and volume
     reconstruction.CoeffInit(argv);
-    
+    //std::cout << "reconstruction.CoeffInit(argv);" << std::endl;
+
     // Initialize reconstructed image with Gaussian weighted reconstruction
     reconstruction.GaussianReconstruction();
-    
+    //std::cout << "reconstruction.GaussianReconstruction();" << std::endl;
+
     // Simulate slices (needs to be done after Gaussian reconstruction)
     reconstruction.SimulateSlices();    
+    //std::cout << "reconstruction.SimulateSlices();" << std::endl;
+
     reconstruction.InitializeRobustStatistics();
+    //std::cout << "reconstruction.InitializeRobustStatistics();" << std::endl;
+    
     reconstruction.EStep();
+    //std::cout << "reconstruction.EStep();" << std::endl;
     
     // number of reconstruction iterations
     if (iter == (iterations - 1)) {
@@ -864,59 +889,64 @@ int main(int argc, char **argv) {
         if (useCPU) {
           if (!disableBiasCorr) {
             if (sigma > 0)
+	    {
               reconstruction.Bias();
+	      //std::cout << "reconstruction.Bias();" << std::endl;
+	    }
           }
           // calculate scales
           reconstruction.Scale();
+	  //std::cout << "reconstruction.Scale();" << std::endl;
         } 
       }
 
       // MStep and update reconstructed volume
       reconstruction.Superresolution(i + 1);
-      
+      //std::cout << "reconstruction.Superresolution(i + 1);" << std::endl;
+
       if (intensity_matching) {
         if (!disableBiasCorr) {
-	    if ((sigma > 0) && (!global_bias_correction))
+	    if ((sigma > 0) && (!global_bias_correction)){
 		reconstruction.NormaliseBias(i);
+		//std::cout << "reconstruction.NormaliseBias(i);" << std::endl;
+	    }
 	}
       }
 
       // Simulate slices (needs to be done
       // after the update of the reconstructed volume)
       reconstruction.SimulateSlices();
+      //std::cout << "reconstruction.SimulateSlices();" << std::endl;
+
       reconstruction.MStep(i + 1);
+      //std::cout << "reconstruction.MStep(i + 1);" << std::endl;
+
       reconstruction.EStep();
+      //std::cout << "reconstruction.EStep();" << std::endl;
     } // end of reconstruction iterations
 
     // Mask reconstructed image to ROI given by the mask
     reconstruction.MaskVolume();
+    //std::cout << "reconstruction.MaskVolume();" << std::endl;
+
     reconstruction.Evaluate(iter);
+    //std::cout << "reconstruction.Evaluate(iter);" << std::endl;
   } // end of interleaved registration-reconstruction iterations
- 
-  /************************8 END ********************************/
-  
+   
   // reconstruction.SyncCPU();
-  if (useCPU) {
-    reconstruction.RestoreSliceIntensities();
-  } else {
-    reconstruction.RestoreSliceIntensitiesGPU();
-  }
-  stats.sample("RestoreSliceInt.");
+  reconstruction.RestoreSliceIntensities();
+  //std::cout << "reconstruction.RestoreSliceIntensities();" << std::endl;
+  reconstruction.ScaleVolume();
 
-  if (useCPU) {
-    reconstruction.ScaleVolume();
-  } else {
-    reconstruction.ScaleVolumeGPU();
-  }
-  stats.sample("ScaleVolume");
+  gettimeofday(&tend, NULL);
+  std::printf("compute time: %lf seconds\n", (tend.tv_sec - tstart.tv_sec) + ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
 
-  if (!useCPU) {
-    // final sync
-    reconstruction.SyncCPU();
-    stats.sample("SyncCPU");
-  }
 
-  pt::ptime now = pt::microsec_clock::local_time();
+  //std::cout << "reconstruction.ScaleVolume();" << std::endl;
+#endif
+  /************************8 END ********************************/
+ 
+  /*pt::ptime now = pt::microsec_clock::local_time();
   pt::time_duration diff = now - start;
   double mss = diff.total_milliseconds() / 1000.0;
 
@@ -933,7 +963,7 @@ int main(int argc, char **argv) {
   perf_file << " s........\n";
   perf_file.close();
   printf(".........overall time: %f s........\n", mss);
-
+  */
   // save final result
   reconstructed = reconstruction.GetReconstructed();
   reconstructed.Write(outputName.c_str());

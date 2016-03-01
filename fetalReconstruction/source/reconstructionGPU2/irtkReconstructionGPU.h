@@ -568,6 +568,7 @@ inline void irtkReconstruction::DebugOff()
 inline void irtkReconstruction::SetSigma(double sigma)
 {
   _sigma_bias = sigma;
+  cout << "_sigma_bias = " << sigma << endl;
 }
 
 inline void irtkReconstruction::useSINCPSF()
@@ -589,11 +590,13 @@ inline void irtkReconstruction::SpeedupOff()
 inline void irtkReconstruction::GlobalBiasCorrectionOn()
 {
   _global_bias_correction = true;
+  cout << "_global_bias_correction = true " << endl;
 }
 
 inline void irtkReconstruction::GlobalBiasCorrectionOff()
 {
   _global_bias_correction = false;
+  cout << "_global_bias_correction = false " << endl;
 }
 
 inline void irtkReconstruction::SetLowIntensityCutoff(double cutoff)
@@ -611,7 +614,7 @@ inline void irtkReconstruction::SetSmoothingParameters(double delta, double lamb
   _lambda = lambda*delta*delta;
   _alpha = 0.05 / lambda;
   if (_alpha > 1) _alpha = 1;
-  cout << "delta = " << _delta << " lambda = " << lambda << " alpha = " << _alpha << endl;
+  cout << "_delta = " << _delta << " _lambda = " << _lambda << " _alpha = " << _alpha << endl;
 }
 
 inline void irtkReconstruction::SetForceExcludedSlices(vector<int>& force_excluded)
