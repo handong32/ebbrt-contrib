@@ -828,89 +828,6 @@ void irtkReconstruction::StackRegistrations(
                                           useExternalTarget);
   registration();
 
-  /*
-    ebbrt::Runtime runtime;
-    ebbrt::Context c(runtime);
-    ebbrt::ContextActivation activation(c);
-    irtkReconstruction *reconstructor = this;
-    cout << "EbbRTStackRegistrations " << endl;
-
-    // hardcoded for now
-    string bindir = "/home/handong/github/EbbRT-irtk-serialize/baremetal/build/"
-                    "Release/AppMain.elf32";
-    /*
-     * event_manager -> Spawn(..) puts the code block on the event queue
-     * to be executed after resolving the Future
-     *
-     *
-    ebbrt::event_manager->Spawn([&reconstructor, &stacks,
-    &stack_transformations,
-                                 templateNumber, &target, &offset,
-                                 useExternalTarget, bindir]() {
-
-      // EbbRTStackRegistrations::Create(..) returns a
-      // Future<EbbRTStackRegistrationsEbbRef>
-      // that gets accessed on the Then(..) call, f.Get() ensures the EbbRef
-      // was created successfully, then we can allocate the baremetal node on
-      // the backend.
-      EbbRTStackRegistrations::Create(reconstructor, stacks,
-                                      stack_transformations, templateNumber,
-                                      target, offset, useExternalTarget)
-          // Then(...) gets the EbbRef
-          .Then([bindir, stacks](ebbrt::Future<EbbRTStackRegistrationsEbbRef> f)
-    {
-            // ensures it was created
-            EbbRTStackRegistrationsEbbRef ref = f.Get();
-
-            // allocated baremetal AppMain.elf32
-            ebbrt::node_allocator->AllocateNode(bindir);
-
-            // test code to get EbbId
-            std::cout << "EbbId: " << ref->getEbbId() << std::endl;
-            // ref->runJob(stacks.size());
-
-            ref->waitReceive().Then([ref, stacks](ebbrt::Future<void> f) {
-              std::cout << "Running job2 " << std::endl;
-              ebbrt::event_manager->Spawn([ref, stacks]() {
-                ref->runJob(stacks.size());
-              });
-
-              std::cout << "Shutting down active context" << std::endl;
-              ebbrt::active_context->io_service_.stop();
-            });
-          });
-    });
-
-    c.Run();
-  */
-  /*ebbrt::event_manager->Spawn([&reconstructor, &stacks,
-  &stack_transformations, templateNumber, &target, &offset,
-  useExternalTarget](){
-          EbbRTStackRegistrationsEbbRef ref =
-  EbbRTStackRegistrations::Create(reconstructor,
-                                                                              stacks,
-                                                                              stack_transformations,
-                                                                              templateNumber,
-                                                                              target,
-                                                                              offset,
-                                                                              useExternalTarget);
-
-
-
-          ref->runJob(stacks.size());
-          cout << "EbbId: " << ref->getEbbId() << endl;
-      });
-  c.Run();
-  */
-  /*EbbRTStackRegistrations registration(this,
-    stacks,
-    stack_transformations,
-    templateNumber,
-    target,
-    offset,
-    useExternalTarget);
-    registration();*/
-
   InvertStackTransformations(stack_transformations);
 }
 
@@ -978,7 +895,6 @@ void irtkReconstruction::ScaleVolume() {
 
   // calculate scale for the volume
   double scale = scalenum / scaleden;
-  printf("Volume scale CPU: %f scalenum: %f scaleden: %f\n", scale, scalenum, scaleden);
 
   if (_debug)
     cout << " scale = " << scale;
@@ -1727,8 +1643,6 @@ public:
         m = m * mo;
         reconstructor->_transformations[inputIndex].PutMatrix(m);
       }
-
-      printf(".");
     }
   }
 
@@ -1792,46 +1706,6 @@ void irtkReconstruction::SliceToVolumeRegistration() {
   ParallelSliceToVolumeRegistration registration(this);
   registration();
 
-  // hardcoded for now
-  /*string bindir = "/home/handong/github/EbbRT-irtk-serialize/baremetal/build/"
-                "Release/AppMain.elf32";
-
-  ebbrt::Runtime runtime;
-  ebbrt::Context c(runtime);
-  ebbrt::ContextActivation activation(c);
-  irtkReconstruction *reconstructor = this;
-  //irtkRealImage *reconstructed_ptr = this->_reconstructed;
-
-  cout << "EbbRTSliceToVolumeRegistration " << endl;
-
-  ebbrt::event_manager->Spawn([&reconstructor, bindir]() {
-          EbbRTSliceToVolumeRegistration::Create(reconstructor)
-              .Then([bindir](ebbrt::Future<EbbRTSliceToVolumeRegistrationEbbRef>
-  f) {
-          EbbRTSliceToVolumeRegistrationEbbRef ref = f.Get();
-
-          // allocated baremetal AppMain.elf32
-          ebbrt::node_allocator->AllocateNode(bindir);
-
-          // test code to get EbbId
-          std::cout << "EbbId: " << ref->getEbbId() << std::endl;
-          // ref->runJob(stacks.size());
-
-          ref->waitReceive().Then([ref](ebbrt::Future<void> f) {
-            std::cout << "Running slicetovolume() " << std::endl;
-            ebbrt::event_manager->Spawn([ref]() {
-                    ref->slicetovolume();
-            });
-
-            std::cout << "Shutting down active context" << std::endl;
-            ebbrt::active_context->io_service_.stop();
-
-          });
-        });
-  });
-
-  c.Run();
-  */
   if (_useCPUReg) {
     _transformations_gpu = _transformations;
   }
@@ -2157,67 +2031,8 @@ void irtkReconstruction::CoeffInit(char **argv) {
   _slice_inside_cpu.clear();
   _slice_inside_cpu.resize(_slices.size());
 
-  //cout << "Initialising matrix coefficients..." << endl;
-  
-  /*auto bindir =
-      boost::filesystem::system_complete(argv[0]).parent_path() /
-      "/../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32";
-  
-  static ebbrt::Runtime runtime;
-  static ebbrt::Context c(runtime);
-  ebbrt::ContextActivation activation(c);
-  irtkReconstruction *reconstructor = this;
-  int numNodes = 1; // 4 seems to be max for vCPUs
-
-  cout << "EbbRTCoeffInit " << endl;
-
-
-
-  ebbrt::event_manager->Spawn([&reconstructor, bindir, numNodes]() {
-    EbbRTCoeffInit::Create(reconstructor, numNodes)
-        .Then([bindir, numNodes](ebbrt::Future<EbbRTCoeffInitEbbRef> f) {
-          EbbRTCoeffInitEbbRef ref = f.Get();
-
-          std::cout << "#######################################EbbId: "
-                    << ref->getEbbId() << std::endl;
-
-          for (int i = 0; i < numNodes; i++) {
-            ebbrt::NodeAllocator::NodeDescriptor nd =
-                ebbrt::node_allocator->AllocateNode(bindir.string(), 8, 2, 8);
-
-            nd.NetworkId().Then([ref](
-                ebbrt::Future<ebbrt::Messenger::NetworkId> f) {
-              ebbrt::Messenger::NetworkId nid = f.Get();
-              std::cout << nid.ToString() << std::endl;
-              ref->addNid(nid);
-            });
-          }
-
-          // waiting for all nodes to be initialized
-          ref->waitNodes().Then([ref](ebbrt::Future<void> f) {
-            f.Get();
-            std::cout << "all nodes initialized" << std::endl;
-            ebbrt::event_manager->Spawn([ref]() { ref->coeffinitParallel2(); });
-          });
-        });
-  });
-
-  c.Deactivate();
-  c.Run();
-  c.Reset();
-  */
-
-
-  //pt::ptime start = pt::microsec_clock::local_time();
-
   ParallelCoeffInit coeffinit(this);
   coeffinit();
-
-  //pt::ptime now = pt::microsec_clock::local_time();
-  //pt::time_duration diff = now - start;
-  //double mss = diff.total_milliseconds() / 1000.0;
-  //std::cout << "***************Total elapsed time = " << mss << " seconds" << std::endl;
-  //cout << " ... done." << endl;
 
   // prepare image for volume weights, will be needed for Gaussian
   // Reconstruction
@@ -2598,8 +2413,6 @@ void irtkReconstruction::InitializeRobustStatistics() {
 	    << "mix=" << _mix_cpu << " "
 	    << "mix_s=" << _mix_s_cpu << std::endl;*/
 
-  std::printf("_sigma_cpu=%f _sigma_s_cpu=%f _mix_cpu=%f _mix_s_cpu=%f _m_cpu=%f\n", _sigma_cpu,_sigma_s_cpu,_mix_cpu,_mix_s_cpu,_m_cpu);
-  std::printf("_simulated_inside = %f\n_simulated_weights = %f\n_slice_weight_cpu =%f\n", sumImage(_simulated_inside), sumImage(_simulated_weights), sumVec(_slice_weight_cpu)); 
 }
 
 class ParallelEStep {
@@ -3135,8 +2948,6 @@ void irtkReconstruction::EStep() {
     cout << endl;
   }*/
 
-  std::printf("_mean_s_cpu=%f _mean_s2_cpu=%f _sigma_s_cpu=%f _sigma_s2_cpu=%f _mix_s_cpu=%f\n", _mean_s_cpu, _mean_s2_cpu, _sigma_s_cpu, _sigma_s2_cpu, _mix_s_cpu);
-  std::printf("_slice_weight_cpu = %f\nslice_potential_cpu = %f\n _weights = %f\n\n", sumVec(_slice_weight_cpu), sumVec(slice_potential_cpu), sumImage(_weights));
 }
 
 class ParallelScale {
@@ -3235,7 +3046,7 @@ void irtkReconstruction::Scale() {
     cout << endl;
   }
 
-  std::printf("\n_scale_cpu = %f\n\n", sumVec(_scale_cpu));
+
 }
 
 class ParallelBias {
@@ -3548,12 +3359,8 @@ void irtkReconstruction::Superresolution(int iter) {
           _reconstructed(i, j, k) = _max_intensity * 1.1;
       }
 
-  std::printf("## original = %f\n", sumOneImage(original));
-  std::printf("## _reconstructed = %f\n", sumOneImage(_reconstructed));
-  
   // Smooth the reconstructed image
   AdaptiveRegularization(iter, original);
-  std::printf("### _reconstructed = %f\n", sumOneImage(_reconstructed));
   
   // Remove the bias in the reconstructed volume compared to previous iteration
   if (_global_bias_correction)

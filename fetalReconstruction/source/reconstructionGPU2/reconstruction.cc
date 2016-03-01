@@ -821,8 +821,7 @@ int main(int argc, char **argv) {
 
   iterations = 1;
   for (int iter = 0; iter < iterations; iter++) {
-      std::cout << "iter = " << iter << std::endl;
-      
+            
     // perform slice-to-volume registrations - skip the first iteration
     if (iter > 0) {
 	reconstruction.SliceToVolumeRegistration();
