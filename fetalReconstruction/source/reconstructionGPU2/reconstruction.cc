@@ -832,26 +832,26 @@ int main(int argc, char **argv) {
   struct timeval tstart, tend;
   gettimeofday(&tstart, NULL);
 
-  iterations = 9;
+  iterations = 1;
   for (int iter = 0; iter < iterations; iter++) {
             
     // perform slice-to-volume registrations - skip the first iteration
     if (iter > 0) {
 	reconstruction.SliceToVolumeRegistration();
-	//std::cout << "reconstruction.SliceToVolumeRegistration();" << std::endl;
+	std::cout << "reconstruction.SliceToVolumeRegistration();" << std::endl;
     }
 
     if (iter == (iterations - 1))
     {
 	reconstruction.SetSmoothingParameters(delta, lastIterLambda);
-	//std::cout << "reconstruction.SetSmoothingParameters(delta, lastIterLambda);" << std::endl;
+	std::cout << "reconstruction.SetSmoothingParameters(delta, lastIterLambda);" << std::endl;
     }
     else {
       double l = lambda;
       for (i = 0; i < levels; i++) {
 	  if (iter == iterations * (levels - i - 1) / levels) {
 	      reconstruction.SetSmoothingParameters(delta, l);
-	      //std::cout << "reconstruction.SetSmoothingParameters(delta, l);" << std::endl;
+	      std::cout << "reconstruction.SetSmoothingParameters(delta, l);" << std::endl;
 	  }
         l *= 2;
       }
@@ -867,25 +867,25 @@ int main(int argc, char **argv) {
 
     // Initialise values of weights, scales and bias fields
     reconstruction.InitializeEMValues();
-    //std::cout << "reconstruction.InitializeEMValues();" << std::endl;
+    std::cout << "reconstruction.InitializeEMValues();" << std::endl;
 
     // Calculate matrix of transformation between voxels of slices and volume
     reconstruction.CoeffInit(argv);
-    //std::cout << "reconstruction.CoeffInit(argv);" << std::endl;
+    std::cout << "reconstruction.CoeffInit(argv);" << std::endl;
 
     // Initialize reconstructed image with Gaussian weighted reconstruction
     reconstruction.GaussianReconstruction();
-    //std::cout << "reconstruction.GaussianReconstruction();" << std::endl;
+    std::cout << "reconstruction.GaussianReconstruction();" << std::endl;
 
     // Simulate slices (needs to be done after Gaussian reconstruction)
     reconstruction.SimulateSlices();    
-    //std::cout << "reconstruction.SimulateSlices();" << std::endl;
+    std::cout << "reconstruction.SimulateSlices();" << std::endl;
 
     reconstruction.InitializeRobustStatistics();
-    //std::cout << "reconstruction.InitializeRobustStatistics();" << std::endl;
+    std::cout << "reconstruction.InitializeRobustStatistics();" << std::endl;
     
     reconstruction.EStep();
-    //std::cout << "reconstruction.EStep();" << std::endl;
+    std::cout << "reconstruction.EStep();" << std::endl;
     
     // number of reconstruction iterations
     if (iter == (iterations - 1)) {
@@ -903,24 +903,24 @@ int main(int argc, char **argv) {
             if (sigma > 0)
 	    {
               reconstruction.Bias();
-	      //std::cout << "reconstruction.Bias();" << std::endl;
+	      std::cout << "reconstruction.Bias();" << std::endl;
 	    }
           }
           // calculate scales
           reconstruction.Scale();
-	  //std::cout << "reconstruction.Scale();" << std::endl;
+	  std::cout << "reconstruction.Scale();" << std::endl;
         } 
       }
 
       // MStep and update reconstructed volume
       reconstruction.Superresolution(i + 1);
-      //std::cout << "reconstruction.Superresolution(i + 1);" << std::endl;
+      std::cout << "reconstruction.Superresolution(i + 1);" << std::endl;
 
       if (intensity_matching) {
         if (!disableBiasCorr) {
 	    if ((sigma > 0) && (!global_bias_correction)){
 		reconstruction.NormaliseBias(i);
-		//std::cout << "reconstruction.NormaliseBias(i);" << std::endl;
+		std::cout << "reconstruction.NormaliseBias(i);" << std::endl;
 	    }
 	}
       }
@@ -928,21 +928,21 @@ int main(int argc, char **argv) {
       // Simulate slices (needs to be done
       // after the update of the reconstructed volume)
       reconstruction.SimulateSlices();
-      //std::cout << "reconstruction.SimulateSlices();" << std::endl;
+      std::cout << "reconstruction.SimulateSlices();" << std::endl;
 
       reconstruction.MStep(i + 1);
-      //std::cout << "reconstruction.MStep(i + 1);" << std::endl;
+      std::cout << "reconstruction.MStep(i + 1);" << std::endl;
 
       reconstruction.EStep();
-      //std::cout << "reconstruction.EStep();" << std::endl;
+      std::cout << "reconstruction.EStep();" << std::endl;
     } // end of reconstruction iterations
 
     // Mask reconstructed image to ROI given by the mask
     reconstruction.MaskVolume();
-    //std::cout << "reconstruction.MaskVolume();" << std::endl;
+    std::cout << "reconstruction.MaskVolume();" << std::endl;
 
     reconstruction.Evaluate(iter);
-    //std::cout << "reconstruction.Evaluate(iter);" << std::endl;
+    std::cout << "reconstruction.Evaluate(iter);" << std::endl;
   } // end of interleaved registration-reconstruction iterations
    
   // reconstruction.SyncCPU();

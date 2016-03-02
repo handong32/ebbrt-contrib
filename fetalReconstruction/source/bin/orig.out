@@ -1,3 +1,4 @@
+#1 iteration, 16 threads
 handong@kd-sesa:~/github/ebbrt-contrib/fetalReconstruction/source/bin$ ./runStack.sh 
 starting reconstruction on 2016-03-02
 PREV tbb_no_threads = -1
@@ -25,6 +26,7 @@ compute time: 49.092051 seconds
 checksum _reconstructed = 44370216.000000
 
 
+# 9 iterations, 16 threads
 handong@kd-sesa:~/github/ebbrt-contrib/fetalReconstruction/source/bin$ ./runStack.sh 
 starting reconstruction on 2016-03-02
 PREV tbb_no_threads = -1

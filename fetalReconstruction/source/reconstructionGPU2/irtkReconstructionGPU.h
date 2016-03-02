@@ -339,6 +339,7 @@ public:
   ///Initalize robust statistics
   void InitializeRobustStatistics();
 
+  void parallelEStep(vector<double>& slice_potential);
   ///Perform E-step 
   void EStep();
 
@@ -351,6 +352,8 @@ public:
   void BiasGPU();
   void NormaliseBias(int iter);
   void NormaliseBiasGPU(int iter);
+  
+  
   ///Superresolution
   void Superresolution(int iter);
 
@@ -360,6 +363,10 @@ public:
   ///Edge-preserving regularization
   void Regularization(int iter);
 
+  void ParallelAdaptiveRegularization1(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original);
+  
+  void ParallelAdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original);
+  
   ///Edge-preserving regularization with confidence map
   void AdaptiveRegularization(int iter, irtkRealImage& original);
 
