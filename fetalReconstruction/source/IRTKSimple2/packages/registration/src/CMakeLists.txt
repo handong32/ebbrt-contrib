@@ -52,7 +52,7 @@ irtkImageRegistrationWithPadding.cc
 irtkImageRigidRegistration.cc
 irtkImageRigidRegistrationWithPadding.cc
 irtkImageRigidRegistration2D.cc
-irtkGenericHistogramSimilarityMetric.cc
+#irtkGenericHistogramSimilarityMetric.cc
 irtkGradientDescentConstrainedOptimizer.cc
 irtkGradientDescentOptimizer.cc
 irtkGradientDescentSymmetricOptimizer.cc

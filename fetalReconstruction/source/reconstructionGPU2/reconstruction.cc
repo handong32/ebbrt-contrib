@@ -63,7 +63,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/program_options.hpp>
 
 #include <utils.h>
-#include "utils.h"
+//#include "utils.h"
 
 #include <signal.h>
 #include <thread>
@@ -102,6 +102,19 @@ const std::string currentDateTime() {
   strftime(buf, sizeof(buf), "%Y-%m-%d", &tstruct);
 
   return buf;
+}
+
+float sumOneImage(irtkRealImage a)
+{
+    float sum = 0.0;
+    irtkRealPixel *ap = a.GetPointerToVoxels();
+
+    for(int j = 0; j < a.GetNumberOfVoxels(); j++)
+    {
+	sum += *ap;
+	ap ++;
+    }
+    return sum;
 }
 
 int main(int argc, char **argv) {
@@ -819,7 +832,7 @@ int main(int argc, char **argv) {
   struct timeval tstart, tend;
   gettimeofday(&tstart, NULL);
 
-  iterations = 1;
+  iterations = 9;
   for (int iter = 0; iter < iterations; iter++) {
             
     // perform slice-to-volume registrations - skip the first iteration
@@ -939,8 +952,6 @@ int main(int argc, char **argv) {
 
   gettimeofday(&tend, NULL);
   std::printf("compute time: %lf seconds\n", (tend.tv_sec - tstart.tv_sec) + ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
-
-
   //std::cout << "reconstruction.ScaleVolume();" << std::endl;
 #endif
   /************************8 END ********************************/
@@ -963,6 +974,8 @@ int main(int argc, char **argv) {
   perf_file.close();
   printf(".........overall time: %f s........\n", mss);
   */
+  std::printf("checksum _reconstructed = %lf\n", sumOneImage(reconstruction._reconstructed));
+  
   // save final result
   reconstructed = reconstruction.GetReconstructed();
   reconstructed.Write(outputName.c_str());

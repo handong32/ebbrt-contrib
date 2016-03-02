@@ -1897,7 +1897,8 @@ void EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
       /************************* START RUN ***********************************/
       struct timeval tstart, tend;
       gettimeofday(&tstart, NULL);      
-      
+
+      iterations = 9;
       for (int iter = 0; iter < iterations; iter++) {
 	  // perform slice-to-volume registrations - skip the first iteration
 	  if (iter > 0) {

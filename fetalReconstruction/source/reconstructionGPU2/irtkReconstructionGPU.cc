@@ -70,65 +70,6 @@
 #include <boost/filesystem.hpp>
 using namespace boost::filesystem;
 
-float sumImage(std::vector<irtkRealImage> a)
-{
-    float sum = 0.0;
-    for (unsigned int i = 0; i < a.size(); i++) 
-    {
-	irtkRealPixel *ap = a[i].GetPointerToVoxels();
-	for(int j = 0; j < a[i].GetNumberOfVoxels(); j++)
-	{
-	    sum += *ap;
-	    ap ++;
-	}
-    }
-    return sum;
-}
-
-double sumVec(std::vector<double> b)
-{
-    double sum = 0.0;
-    for(int i = 0; i < b.size(); i++)
-    {
-	sum += b[i];
-    }
-    return sum;
-}
-
-float sumOneImage(irtkRealImage a)
-{
-    float sum = 0.0;
-    irtkRealPixel *ap = a.GetPointerToVoxels();
-
-    for(int j = 0; j < a.GetNumberOfVoxels(); j++)
-    {
-	sum += *ap;
-	ap ++;
-    }
-    return sum;
-}
-
-int sumBool(std::vector<bool> b)
-{
-    int sum = 0;
-    for(unsigned int i = 0; i < b.size(); i++)
-    {
-	if(b[1])
-	    sum += 1;
-    }
-    return sum;
-}
-
-int sumInt(std::vector<int> b)
-{
-    int sum = 0;
-    for(int i = 0; i < b.size(); i++)
-    {
-	sum += b[i];
-    }
-    return sum;
-}
-
 void bbox(irtkRealImage &stack, irtkRigidTransformation &transformation,
           double &min_x, double &min_y, double &min_z, double &max_x,
           double &max_y, double &max_z) {

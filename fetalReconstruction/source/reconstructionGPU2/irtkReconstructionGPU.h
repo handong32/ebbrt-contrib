@@ -614,7 +614,7 @@ inline void irtkReconstruction::SetSmoothingParameters(double delta, double lamb
   _lambda = lambda*delta*delta;
   _alpha = 0.05 / lambda;
   if (_alpha > 1) _alpha = 1;
-  cout << "_delta = " << _delta << " _lambda = " << _lambda << " _alpha = " << _alpha << endl;
+  //cout << "_delta = " << _delta << " _lambda = " << _lambda << " _alpha = " << _alpha << endl;
 }
 
 inline void irtkReconstruction::SetForceExcludedSlices(vector<int>& force_excluded)
