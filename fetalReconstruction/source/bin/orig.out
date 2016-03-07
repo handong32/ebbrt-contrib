@@ -55,3 +55,30 @@ _delta = 150 _lambda = 225 _alpha = 1
 
 compute time: 181.963322 seconds
 checksum _reconstructed = 44669540.000000
+
+#9 iterations, 16 threads, large dataset
+handong@kd-sesa:~/github/ebbrt-contrib/fetalReconstruction/source/bin$ ./runTestDataset.sh
+starting reconstruction on 2016-03-02
+PREV tbb_no_threads = -1
+NEW tbb_no_threads = 1
+Reconstructed volume name ... 3TReconstruction.nii.gz
+Number of stacks ... 4
+Reading stack ... data/14_3T_nody_001.nii.gz
+Reading stack ... data/10_3T_nody_001.nii.gz
+Reading stack ... data/21_3T_nody_001.nii.gz
+Reading stack ... data/23_3T_nody_001.nii.gz
+Slice thickness is 2.5 2.5 2.5 2.5 .
+Constructing volume with isotropic voxel size 1
+StackRegistrations start
+
+reconstruction.CreateAverage
+
+Number of slices: 318
+Masking slices ... done.
+_sigma_bias = 12
+_global_bias_correction = false 
+*************** packages.size() 0
+
+compute time: 8661.667812 seconds
+checksum _reconstructed = 698227136.000000
+
