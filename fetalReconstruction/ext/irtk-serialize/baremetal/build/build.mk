@@ -10,9 +10,9 @@ EBBRT_APP_VPATH := $(abspath $(MYDIR)../src):$(FETAL_RECON_DIR)/source/IRTKSimpl
 EBBRT_CONFIG := $(abspath $(MYDIR)../src/ebbrtcfg.h)
 
 EBBRT_APP_INCLUDES := -I $(abspath $(MYDIR)../ext)
-EBBRT_APP_LINK := -L $(MYDIR)lib -lgsl -lgslcblas -lboost_system-gcc-1_54 -lboost_serialization-gcc-1_54
+EBBRT_APP_LINK := -L $(MYDIR)lib -lgsl -lgslcblas -lboost_serialization -lboost_wserialization -lboost_system
 
-EBBRT_APP_CPPFLAGS = -Wno-unused-local-typedefs -O2
+EBBRT_APP_CPPFLAGS = -Wno-unused-local-typedefs -Wno-deprecated -O2
 
 include $(abspath ../../../irtk.mk)
 

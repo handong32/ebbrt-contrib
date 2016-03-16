@@ -1,4 +1,4 @@
-//#define EBB
+#define EBB
 /*=========================================================================
 Library   : Image Registration Toolkit (IRTK)
 Copyright : Imperial College, Department of Computing
@@ -803,7 +803,7 @@ int main(int argc, char **argv) {
 
           for (int i = 0; i < numNodes; i++) {
             ebbrt::NodeAllocator::NodeDescriptor nd =
-                ebbrt::node_allocator->AllocateNode(bindir.string(), 2, 2, 8);
+                ebbrt::node_allocator->AllocateNode(bindir.string(), 8, 2, 8);
 
             nd.NetworkId().Then([ref](
                 ebbrt::Future<ebbrt::Messenger::NetworkId> f) {

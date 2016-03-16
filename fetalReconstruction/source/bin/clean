@@ -1,3 +1,4 @@
 rm *txt
 rm *nii*
 /opt/khpy/kh clean
+rm reconstruction_GPU2
