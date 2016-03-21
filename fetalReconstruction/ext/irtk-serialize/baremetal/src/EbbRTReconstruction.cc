@@ -2643,19 +2643,33 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     ebbrt::kprintf("Computed chain length: %d bytes\n",
                    buffer->ComputeChainDataLength());
 
+    /****** copy sub buffers into one buffer *****/
+    struct timeval astart, aend;
+    gettimeofday(&astart, NULL);
+
     ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
     char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
     membuf sb{ t + 2, t + buffer->ComputeChainDataLength() };
     std::istream stream{ &sb };
+    
+    gettimeofday(&aend, NULL);
+    ebbrt::kprintf("get buffer compute chain data length time: %lf seconds\n",
+                   (aend.tv_sec - astart.tv_sec) +
+                       ((aend.tv_usec - astart.tv_usec) / 1000000.0));
+    /********* ******************************/
 
-    ebbrt::kprintf("Begin deserialization...\n");
+    
+    //ebbrt::kprintf("Begin deserialization...\n");
+    /********** deserialize ******************/
+    struct timeval bstart, bend;
+    gettimeofday(&bstart, NULL);
     boost::archive::text_iarchive ia(stream);
 
     int start, end, diff;
     ia &start &end;
     diff = end - start;
 
-    ebbrt::kprintf("start:%d end:%d diff:%d\n", start, end, end);
+    //ebbrt::kprintf("start:%d end:%d diff:%d\n", start, end, end);
 
     _slices.resize(diff);
     _transformations.resize(diff);
@@ -2663,12 +2677,12 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     _simulated_weights.resize(diff);
     _simulated_inside.resize(diff);
     _stack_index.resize(diff);
-
+    
     for (int k = 0; k < diff; k++) {
       ia &_slices[k];
     }
 
-    ebbrt::kprintf("_slices deserialized\n");
+    //ebbrt::kprintf("_slices deserialized\n");
 
     for (int k = 0; k < diff; k++) {
       ia &_transformations[k];
@@ -2689,7 +2703,7 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     for (int k = 0; k < diff; k++) {
       ia &_stack_index[k];
     }
-
+    
     int ssend;
     ia &ssend;
     _stack_factor.resize(ssend);
@@ -2698,10 +2712,16 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     }
     ia &_reconstructed &_mask &_max_slices &_global_bias_correction;
 
-    ebbrt::kprintf("Deserialized...\n");
+    gettimeofday(&bend, NULL);
+    ebbrt::kprintf("deserialize time: %lf seconds\n",
+                   (bend.tv_sec - bstart.tv_sec) +
+                       ((bend.tv_usec - bstart.tv_usec) / 1000000.0));
+    /********* ******************************/
 
-    ebbrt::kprintf("_slices: %d\n", _slices.size());
-    ebbrt::kprintf("_transformations: %d\n", _transformations.size());
+    //ebbrt::kprintf("Deserialized...\n");
+
+    //ebbrt::kprintf("_slices: %d\n", _slices.size());
+    //ebbrt::kprintf("_transformations: %d\n", _transformations.size());
 
     int iterations = 1; // 9 //2 for Shepp-Logan is enough
     double sigma = 12;
@@ -2735,12 +2755,11 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     _low_intensity_cutoff = 0.01;
     _adaptive = false;
 
-    InitializeEM();
-
     /************************* START RUN ***********************************/
     struct timeval tstart, tend;
     gettimeofday(&tstart, NULL);
-
+    InitializeEM();
+    
     iterations = ITER;
     for (int iter = 0; iter < iterations; iter++) {
       // perform slice-to-volume registrations - skip the first iteration

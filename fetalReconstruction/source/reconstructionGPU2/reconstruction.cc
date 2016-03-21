@@ -85,7 +85,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //#include <boost/archive/text_oarchive.hpp>
 //#include <boost/archive/text_iarchive.hpp>
 
-
 namespace po = boost::program_options;
 
 #if HAVE_CULA
@@ -104,24 +103,24 @@ const std::string currentDateTime() {
   return buf;
 }
 
-float sumOneImage(irtkRealImage a)
-{
-    float sum = 0.0;
-    irtkRealPixel *ap = a.GetPointerToVoxels();
+float sumOneImage(irtkRealImage a) {
+  float sum = 0.0;
+  irtkRealPixel *ap = a.GetPointerToVoxels();
 
-    for(int j = 0; j < a.GetNumberOfVoxels(); j++)
-    {
-	sum += *ap;
-	ap ++;
-    }
-    return sum;
+  for (int j = 0; j < a.GetNumberOfVoxels(); j++) {
+    sum += *ap;
+    ap++;
+  }
+  return sum;
 }
 
 int main(int argc, char **argv) {
+    struct timeval totstart, totend;
+    gettimeofday(&totstart, NULL);
   std::cout << "starting reconstruction on " << currentDateTime() << std::endl;
 
-  //func1(argv);
-  //func1(argv);
+  // func1(argv);
+  // func1(argv);
 
   // utility variables
   int i, ok;
@@ -313,6 +312,9 @@ int main(int argc, char **argv) {
         "inhomogenities (makes it faster but less reliable for stron intensity "
         "bias)")("numThreads", po::value<int>(&numThreads)->default_value(-1),
                  "Number of CPU threads to run for TBB");
+
+    struct timeval totstart, totend;
+    gettimeofday(&totstart, NULL);
 
     po::variables_map vm;
 
@@ -780,26 +782,28 @@ int main(int argc, char **argv) {
   }
   pt::ptime start = pt::microsec_clock::local_time();
 
-  std::cout << "*************** packages.size() " << packages.size() << std::endl;
-  
-  /**************************************8START *****************/
-  // interleaved registration-reconstruction iterations
+  std::cout << "*************** packages.size() " << packages.size()
+            << std::endl;
+
+/**************************************8START *****************/
+// interleaved registration-reconstruction iterations
 #ifdef EBB
   auto bindir =
       boost::filesystem::system_complete(argv[0]).parent_path() /
       "/../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32";
-  
+
   static ebbrt::Runtime runtime;
   static ebbrt::Context c(runtime);
   ebbrt::ContextActivation activation(c);
   int numNodes = 1; // 4 seems to be max for vCPUs
 
-  ebbrt::event_manager->Spawn([&reconstruction, bindir, numNodes, iterations]() {
-	  EbbRTReconstruction::Create(&reconstruction, numNodes, iterations)
+  ebbrt::event_manager->Spawn([&reconstruction, bindir, numNodes,
+                               iterations]() {
+    EbbRTReconstruction::Create(&reconstruction, numNodes, iterations)
         .Then([bindir, numNodes](ebbrt::Future<EbbRTReconstructionEbbRef> f) {
-		EbbRTReconstructionEbbRef ref = f.Get();
-		
-		std::cout << "EbbId: " << ref->getEbbId() << std::endl;
+          EbbRTReconstructionEbbRef ref = f.Get();
+
+          std::cout << "EbbId: " << ref->getEbbId() << std::endl;
 
           for (int i = 0; i < numNodes; i++) {
             ebbrt::NodeAllocator::NodeDescriptor nd =
@@ -818,41 +822,46 @@ int main(int argc, char **argv) {
             f.Get();
             std::cout << "all nodes initialized" << std::endl;
             ebbrt::event_manager->Spawn([ref]() { ref->runRecon(); });
-	      });
-	    });
-      });
+          });
+        });
+  });
   std::cout << "######## WAITING FOR BM ############" << std::endl;
-  
+
   c.Deactivate();
   c.Run();
   c.Reset();
-  
+
 #else
-//  std::printf("lambda = %f delta = %f intensity_matching = %d useCPU = %d disableBiasCorr = %d sigma = %f global_bias_correction = %d lastIterLambda = %f iterations = %d\n", lambda, delta, intensity_matching, useCPU, disableBiasCorr, sigma, global_bias_correction, lastIterLambda, iterations);
+  //  std::printf("lambda = %f delta = %f intensity_matching = %d useCPU = %d
+  // disableBiasCorr = %d sigma = %f global_bias_correction = %d lastIterLambda
+  // = %f iterations = %d\n", lambda, delta, intensity_matching, useCPU,
+  // disableBiasCorr, sigma, global_bias_correction, lastIterLambda,
+  // iterations);
   struct timeval tstart, tend;
   gettimeofday(&tstart, NULL);
 
   iterations = 9;
   for (int iter = 0; iter < iterations; iter++) {
-            
+
     // perform slice-to-volume registrations - skip the first iteration
     if (iter > 0) {
-	reconstruction.SliceToVolumeRegistration();
-	//std::cout << "reconstruction.SliceToVolumeRegistration();" << std::endl;
+      reconstruction.SliceToVolumeRegistration();
+      // std::cout << "reconstruction.SliceToVolumeRegistration();" <<
+      // std::endl;
     }
 
-    if (iter == (iterations - 1))
-    {
-	reconstruction.SetSmoothingParameters(delta, lastIterLambda);
-	//std::cout << "reconstruction.SetSmoothingParameters(delta, lastIterLambda);" << std::endl;
-    }
-    else {
+    if (iter == (iterations - 1)) {
+      reconstruction.SetSmoothingParameters(delta, lastIterLambda);
+      // std::cout << "reconstruction.SetSmoothingParameters(delta,
+      // lastIterLambda);" << std::endl;
+    } else {
       double l = lambda;
       for (i = 0; i < levels; i++) {
-	  if (iter == iterations * (levels - i - 1) / levels) {
-	      reconstruction.SetSmoothingParameters(delta, l);
-	      //std::cout << "reconstruction.SetSmoothingParameters(delta, l);" << std::endl;
-	  }
+        if (iter == iterations * (levels - i - 1) / levels) {
+          reconstruction.SetSmoothingParameters(delta, l);
+          // std::cout << "reconstruction.SetSmoothingParameters(delta, l);" <<
+          // std::endl;
+        }
         l *= 2;
       }
     }
@@ -860,33 +869,33 @@ int main(int argc, char **argv) {
     // Use faster reconstruction during iterations and slower for final
     // reconstruction
     if (iter < (iterations - 1)) {
-	reconstruction.SpeedupOn();
+      reconstruction.SpeedupOn();
     } else {
-	reconstruction.SpeedupOff();
+      reconstruction.SpeedupOff();
     }
 
     // Initialise values of weights, scales and bias fields
     reconstruction.InitializeEMValues();
-    //std::cout << "reconstruction.InitializeEMValues();" << std::endl;
+    // std::cout << "reconstruction.InitializeEMValues();" << std::endl;
 
     // Calculate matrix of transformation between voxels of slices and volume
     reconstruction.CoeffInit(argv);
-    //std::cout << "reconstruction.CoeffInit(argv);" << std::endl;
+    // std::cout << "reconstruction.CoeffInit(argv);" << std::endl;
 
     // Initialize reconstructed image with Gaussian weighted reconstruction
     reconstruction.GaussianReconstruction();
-    //std::cout << "reconstruction.GaussianReconstruction();" << std::endl;
+    // std::cout << "reconstruction.GaussianReconstruction();" << std::endl;
 
     // Simulate slices (needs to be done after Gaussian reconstruction)
-    reconstruction.SimulateSlices();    
-    //std::cout << "reconstruction.SimulateSlices();" << std::endl;
+    reconstruction.SimulateSlices();
+    // std::cout << "reconstruction.SimulateSlices();" << std::endl;
 
     reconstruction.InitializeRobustStatistics();
-    //std::cout << "reconstruction.InitializeRobustStatistics();" << std::endl;
-    
+    // std::cout << "reconstruction.InitializeRobustStatistics();" << std::endl;
+
     reconstruction.EStep();
-    //std::cout << "reconstruction.EStep();" << std::endl;
-    
+    // std::cout << "reconstruction.EStep();" << std::endl;
+
     // number of reconstruction iterations
     if (iter == (iterations - 1)) {
       rec_iterations = rec_iterations_last;
@@ -900,62 +909,63 @@ int main(int argc, char **argv) {
         // calculate bias fields
         if (useCPU) {
           if (!disableBiasCorr) {
-            if (sigma > 0)
-	    {
+            if (sigma > 0) {
               reconstruction.Bias();
-	      //std::cout << "reconstruction.Bias();" << std::endl;
-	    }
+              // std::cout << "reconstruction.Bias();" << std::endl;
+            }
           }
           // calculate scales
           reconstruction.Scale();
-	  //std::cout << "reconstruction.Scale();" << std::endl;
-        } 
+          // std::cout << "reconstruction.Scale();" << std::endl;
+        }
       }
 
       // MStep and update reconstructed volume
       reconstruction.Superresolution(i + 1);
-      //std::cout << "reconstruction.Superresolution(i + 1);" << std::endl;
+      // std::cout << "reconstruction.Superresolution(i + 1);" << std::endl;
 
       if (intensity_matching) {
         if (!disableBiasCorr) {
-	    if ((sigma > 0) && (!global_bias_correction)){
-		reconstruction.NormaliseBias(i);
-		//std::cout << "reconstruction.NormaliseBias(i);" << std::endl;
-	    }
-	}
+          if ((sigma > 0) && (!global_bias_correction)) {
+            reconstruction.NormaliseBias(i);
+            // std::cout << "reconstruction.NormaliseBias(i);" << std::endl;
+          }
+        }
       }
 
       // Simulate slices (needs to be done
       // after the update of the reconstructed volume)
       reconstruction.SimulateSlices();
-      //std::cout << "reconstruction.SimulateSlices();" << std::endl;
+      // std::cout << "reconstruction.SimulateSlices();" << std::endl;
 
       reconstruction.MStep(i + 1);
-      //std::cout << "reconstruction.MStep(i + 1);" << std::endl;
+      // std::cout << "reconstruction.MStep(i + 1);" << std::endl;
 
       reconstruction.EStep();
-      //std::cout << "reconstruction.EStep();" << std::endl;
+      // std::cout << "reconstruction.EStep();" << std::endl;
     } // end of reconstruction iterations
 
     // Mask reconstructed image to ROI given by the mask
     reconstruction.MaskVolume();
-    //std::cout << "reconstruction.MaskVolume();" << std::endl;
+    // std::cout << "reconstruction.MaskVolume();" << std::endl;
 
     reconstruction.Evaluate(iter);
-    //std::cout << "reconstruction.Evaluate(iter);" << std::endl;
+    // std::cout << "reconstruction.Evaluate(iter);" << std::endl;
   } // end of interleaved registration-reconstruction iterations
-   
+
   // reconstruction.SyncCPU();
   reconstruction.RestoreSliceIntensities();
-  //std::cout << "reconstruction.RestoreSliceIntensities();" << std::endl;
+  // std::cout << "reconstruction.RestoreSliceIntensities();" << std::endl;
   reconstruction.ScaleVolume();
 
   gettimeofday(&tend, NULL);
-  std::printf("compute time: %lf seconds\n", (tend.tv_sec - tstart.tv_sec) + ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
-  //std::cout << "reconstruction.ScaleVolume();" << std::endl;
+  std::printf("compute time: %lf seconds\n",
+              (tend.tv_sec - tstart.tv_sec) +
+                  ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
+// std::cout << "reconstruction.ScaleVolume();" << std::endl;
 #endif
   /************************8 END ********************************/
- 
+
   /*pt::ptime now = pt::microsec_clock::local_time();
   pt::time_duration diff = now - start;
   double mss = diff.total_milliseconds() / 1000.0;
@@ -974,11 +984,17 @@ int main(int argc, char **argv) {
   perf_file.close();
   printf(".........overall time: %f s........\n", mss);
   */
-  std::printf("checksum _reconstructed = %lf\n", sumOneImage(reconstruction._reconstructed));
-  
+  std::printf("checksum _reconstructed = %lf\n",
+              sumOneImage(reconstruction._reconstructed));
+
   // save final result
   reconstructed = reconstruction.GetReconstructed();
   reconstructed.Write(outputName.c_str());
+
+  gettimeofday(&totend, NULL);
+  std::printf("total time: %lf seconds\n",
+              (totend.tv_sec - totstart.tv_sec) +
+	      ((totend.tv_usec - totstart.tv_usec) / 1000000.0));
 
   // write computation time to file for tuner test
 
