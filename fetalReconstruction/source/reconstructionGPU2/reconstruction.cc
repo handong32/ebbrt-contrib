@@ -1,4 +1,5 @@
-#define EBB
+//#define EBB
+#define NCPUS 2
 /*=========================================================================
 Library   : Image Registration Toolkit (IRTK)
 Copyright : Imperial College, Department of Computing
@@ -312,9 +313,6 @@ int main(int argc, char **argv) {
         "inhomogenities (makes it faster but less reliable for stron intensity "
         "bias)")("numThreads", po::value<int>(&numThreads)->default_value(-1),
                  "Number of CPU threads to run for TBB");
-
-    struct timeval totstart, totend;
-    gettimeofday(&totstart, NULL);
 
     po::variables_map vm;
 
@@ -788,6 +786,9 @@ int main(int argc, char **argv) {
 /**************************************8START *****************/
 // interleaved registration-reconstruction iterations
 #ifdef EBB
+  struct timeval ebbstart, ebbend;
+  gettimeofday(&ebbstart, NULL);
+  
   auto bindir =
       boost::filesystem::system_complete(argv[0]).parent_path() /
       "/../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32";
@@ -807,7 +808,7 @@ int main(int argc, char **argv) {
 
           for (int i = 0; i < numNodes; i++) {
             ebbrt::NodeAllocator::NodeDescriptor nd =
-                ebbrt::node_allocator->AllocateNode(bindir.string(), 8, 2, 8);
+                ebbrt::node_allocator->AllocateNode(bindir.string(), NCPUS, 2, 8);
 
             nd.NetworkId().Then([ref](
                 ebbrt::Future<ebbrt::Messenger::NetworkId> f) {
@@ -831,6 +832,11 @@ int main(int argc, char **argv) {
   c.Run();
   c.Reset();
 
+  gettimeofday(&ebbend, NULL);
+  std::printf("main ebbrt time: %lf seconds\n",
+              (ebbend.tv_sec - ebbstart.tv_sec) +
+                  ((ebbend.tv_usec - ebbstart.tv_usec) / 1000000.0));
+
 #else
   //  std::printf("lambda = %f delta = %f intensity_matching = %d useCPU = %d
   // disableBiasCorr = %d sigma = %f global_bias_correction = %d lastIterLambda
@@ -840,7 +846,7 @@ int main(int argc, char **argv) {
   struct timeval tstart, tend;
   gettimeofday(&tstart, NULL);
 
-  iterations = 9;
+  iterations = 1;
   for (int iter = 0; iter < iterations; iter++) {
 
     // perform slice-to-volume registrations - skip the first iteration

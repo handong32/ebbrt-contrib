@@ -76,7 +76,9 @@ bool _adaptive;
 std::vector<double> _slices_regCertainty;
 ebbrt::SpinLock spinlock;
 
+#ifdef PARALLEL
 static size_t indexToCPU(size_t i) { return i; }
+#endif
 
 EbbRTReconstruction &EbbRTReconstruction::HandleFault(ebbrt::EbbId id) {
   {
@@ -579,8 +581,8 @@ void MaskImage(irtkRealImage &image, double padding, irtkRealImage &_mask) {
   }
 }
 
-void NormaliseBiasP(int start, int end, irtkRealImage& bias) {
-    for (size_t inputIndex = (size_t)start; inputIndex < (size_t)end;
+void NormaliseBiasP(int start, int end, irtkRealImage &bias) {
+  for (size_t inputIndex = (size_t)start; inputIndex < (size_t)end;
        ++inputIndex) {
     // alias the current slice
     irtkRealImage &slice = _slices[inputIndex];
@@ -663,7 +665,7 @@ void NormaliseBias(int iter, int start, int end) {
           {
             // lock_guard auto unlocks end of scope, mutex doesn't work yet
             std::lock_guard<ebbrt::SpinLock> l(spinlock);
-	    bias += mbias;
+            bias += mbias;
           }
 
           // atomically increment count
@@ -959,10 +961,11 @@ void Superresolution(int iter, int start, int end) {
   }
 }
 
-void MStepP(int start, int end, double& sigma, double& mix, double& num, double& min, double& max) {
-    
-    for (size_t inputIndex = (size_t)start; inputIndex < (size_t)end;
-	 ++inputIndex) {
+void MStepP(int start, int end, double &sigma, double &mix, double &num,
+            double &min, double &max) {
+
+  for (size_t inputIndex = (size_t)start; inputIndex < (size_t)end;
+       ++inputIndex) {
     // read the current slice
     irtkRealImage slice = _slices[inputIndex];
 
@@ -1034,7 +1037,8 @@ void MStep(int iter, int start, int end) {
   for (size_t i = 0; i < ncpus; i++) {
     // spawn jobs on each core using SpawnRemote
     ebbrt::event_manager->SpawnRemote(
-        [theCpu, ncpus, &count, &context, i, diff, &sigma, &mix, &num, &min, &max]() {
+        [theCpu, ncpus, &count, &context, i, diff, &sigma, &mix, &num, &min,
+         &max]() {
           // get my cpu id
           size_t mycpu = ebbrt::Cpu::GetMine();
 
@@ -1044,23 +1048,25 @@ void MStep(int iter, int start, int end) {
           ende = i * factor + factor;
           ende = (ende > diff) ? diff : ende;
 
-	  double msigma = 0;
-	  double mmix = 0;
-	  double mnum = 0;
-	  double mmin = voxel_limits<irtkRealPixel>::max();
-	  double mmax = voxel_limits<irtkRealPixel>::min();
+          double msigma = 0;
+          double mmix = 0;
+          double mnum = 0;
+          double mmin = voxel_limits<irtkRealPixel>::max();
+          double mmax = voxel_limits<irtkRealPixel>::min();
 
-	  MStepP(starte, ende, msigma, mmix, mnum, mmin, mmax);
-	  
+          MStepP(starte, ende, msigma, mmix, mnum, mmin, mmax);
+
           // braces for scoping
           {
             // lock_guard auto unlocks end of scope, mutex doesn't work yet
             std::lock_guard<ebbrt::SpinLock> l(spinlock);
-	    if(mmin < min) min = mmin;
-	    if(mmax > max) max = mmax;
-	    sigma += msigma;
-	    mix += mmix;
-	    num += mnum;
+            if (mmin < min)
+              min = mmin;
+            if (mmax > max)
+              max = mmax;
+            sigma += msigma;
+            mix += mmix;
+            num += mnum;
           }
 
           // atomically increment count
@@ -1244,7 +1250,7 @@ void Scale(int start, int end) {
 
 #else
 
-  ScaleP(starte, ende);
+  ScaleP(start, end);
 
 #endif
 }
@@ -1845,14 +1851,16 @@ void SimulateSlices(int start, int end) {
 #endif
 }
 
-void GaussianReconstructionP(int start, int end, vector<int>& voxel_num, irtkRealImage& recon) {
-    int slice_vox_num;
-    irtkRealImage slice;
-    double scale;
-    int i, j, k, n;
-    POINT3D p;
+void GaussianReconstructionP(int start, int end, vector<int> &voxel_num,
+                             irtkRealImage &recon) {
+  int slice_vox_num;
+  irtkRealImage slice;
+  double scale;
+  int i, j, k, n;
+  POINT3D p;
 
-  for (size_t inputIndex = (size_t)start; inputIndex < (size_t)end; ++inputIndex) {
+  for (size_t inputIndex = (size_t)start; inputIndex < (size_t)end;
+       ++inputIndex) {
     // copy the current slice
     slice = _slices[inputIndex];
     // alias the current bias image
@@ -1901,7 +1909,7 @@ void GaussianReconstruction(int start, int end) {
 
   // create a spin barrier on all cpus
   static ebbrt::SpinBarrier bar(ncpus);
-  
+
   // gets current context
   ebbrt::EventManager::EventContext context;
 
@@ -1924,16 +1932,16 @@ void GaussianReconstruction(int start, int end) {
           ende = i * factor + factor;
           ende = (ende > diff) ? diff : ende;
 
-	  irtkRealImage recon;
-	  recon.Initialize(_reconstructed.GetImageAttributes());
-	  recon = 0;
-	  
+          irtkRealImage recon;
+          recon.Initialize(_reconstructed.GetImageAttributes());
+          recon = 0;
+
           GaussianReconstructionP(starte, ende, voxel_num, recon);
-	  // braces for scoping
+          // braces for scoping
           {
             // lock_guard auto unlocks end of scope, mutex doesn't work yet
             std::lock_guard<ebbrt::SpinLock> l(spinlock);
-	    _reconstructed += recon;
+            _reconstructed += recon;
           }
 
           // atomically increment count
@@ -1958,16 +1966,16 @@ void GaussianReconstruction(int start, int end) {
   }
 
   ebbrt::event_manager->SaveContext(context);
-  
+
 #else
   unsigned int inputIndex;
   int i, j, k, n;
   irtkRealImage slice;
   double scale;
   POINT3D p;
-  
+
   int slice_vox_num;
-  
+
   vector<int> voxel_num;
   // CPU
   for (inputIndex = (size_t)start; inputIndex < (size_t)end; ++inputIndex) {
@@ -2630,36 +2638,30 @@ struct membuf : std::streambuf {
 void
 EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
                                     std::unique_ptr<ebbrt::IOBuf> &&buffer) {
-  ebbrt::kprintf("******************ReceiveMessage: ");
-  auto end = std::chrono::system_clock::now();
-  auto end_time = std::chrono::system_clock::to_time_t(end);
-  ebbrt::kprintf("%s ***********\n", std::ctime(&end_time));
+  struct timeval astart, aend;
+  gettimeofday(&astart, NULL);
+
+  //ebbrt::kprintf("******************ReceiveMessage: ");
+  //auto end = std::chrono::system_clock::now();
+  //auto end_time = std::chrono::system_clock::to_time_t(end);
+  //ebbrt::kprintf("%s ***********\n", std::ctime(&end_time));
 
   auto output = std::string(reinterpret_cast<const char *>(buffer->Data()),
                             buffer->Length());
   if (output[0] == 'E') {
-    ebbrt::kprintf("Received msg length: %d bytes\n", buffer->Length());
-    ebbrt::kprintf("Number chain elements: %d\n", buffer->CountChainElements());
-    ebbrt::kprintf("Computed chain length: %d bytes\n",
-                   buffer->ComputeChainDataLength());
+      //ebbrt::kprintf("Received msg length: %d bytes\n", buffer->Length());
+      //ebbrt::kprintf("Number chain elements: %d\n", buffer->CountChainElements());
+      //ebbrt::kprintf("Computed chain length: %d bytes\n",
+      //           buffer->ComputeChainDataLength());
 
     /****** copy sub buffers into one buffer *****/
-    struct timeval astart, aend;
-    gettimeofday(&astart, NULL);
-
     ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
     char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
     membuf sb{ t + 2, t + buffer->ComputeChainDataLength() };
     std::istream stream{ &sb };
-    
-    gettimeofday(&aend, NULL);
-    ebbrt::kprintf("get buffer compute chain data length time: %lf seconds\n",
-                   (aend.tv_sec - astart.tv_sec) +
-                       ((aend.tv_usec - astart.tv_usec) / 1000000.0));
     /********* ******************************/
 
-    
-    //ebbrt::kprintf("Begin deserialization...\n");
+    // ebbrt::kprintf("Begin deserialization...\n");
     /********** deserialize ******************/
     struct timeval bstart, bend;
     gettimeofday(&bstart, NULL);
@@ -2669,7 +2671,7 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     ia &start &end;
     diff = end - start;
 
-    //ebbrt::kprintf("start:%d end:%d diff:%d\n", start, end, end);
+    // ebbrt::kprintf("start:%d end:%d diff:%d\n", start, end, end);
 
     _slices.resize(diff);
     _transformations.resize(diff);
@@ -2677,12 +2679,12 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     _simulated_weights.resize(diff);
     _simulated_inside.resize(diff);
     _stack_index.resize(diff);
-    
+
     for (int k = 0; k < diff; k++) {
       ia &_slices[k];
     }
 
-    //ebbrt::kprintf("_slices deserialized\n");
+    // ebbrt::kprintf("_slices deserialized\n");
 
     for (int k = 0; k < diff; k++) {
       ia &_transformations[k];
@@ -2703,7 +2705,7 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     for (int k = 0; k < diff; k++) {
       ia &_stack_index[k];
     }
-    
+
     int ssend;
     ia &ssend;
     _stack_factor.resize(ssend);
@@ -2713,15 +2715,15 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     ia &_reconstructed &_mask &_max_slices &_global_bias_correction;
 
     gettimeofday(&bend, NULL);
-    ebbrt::kprintf("deserialize time: %lf seconds\n",
+    ebbrt::kprintf("EbbRT deserialize time: %lf seconds\n",
                    (bend.tv_sec - bstart.tv_sec) +
                        ((bend.tv_usec - bstart.tv_usec) / 1000000.0));
     /********* ******************************/
 
-    //ebbrt::kprintf("Deserialized...\n");
+    // ebbrt::kprintf("Deserialized...\n");
 
-    //ebbrt::kprintf("_slices: %d\n", _slices.size());
-    //ebbrt::kprintf("_transformations: %d\n", _transformations.size());
+    // ebbrt::kprintf("_slices: %d\n", _slices.size());
+    // ebbrt::kprintf("_transformations: %d\n", _transformations.size());
 
     int iterations = 1; // 9 //2 for Shepp-Logan is enough
     double sigma = 12;
@@ -2759,7 +2761,7 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     struct timeval tstart, tend;
     gettimeofday(&tstart, NULL);
     InitializeEM();
-    
+
     iterations = ITER;
     for (int iter = 0; iter < iterations; iter++) {
       // perform slice-to-volume registrations - skip the first iteration
@@ -2848,7 +2850,7 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     ScaleVolume();
 
     gettimeofday(&tend, NULL);
-    ebbrt::kprintf("compute time: %lf seconds\n",
+    ebbrt::kprintf("EbbRT compute time: %lf seconds\n",
                    (tend.tv_sec - tstart.tv_sec) +
                        ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
 
@@ -2862,4 +2864,10 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
 
     Print(ts.c_str());
   }
+
+  gettimeofday(&aend, NULL);
+  ebbrt::kprintf("EbbRT receiveMessage time: %lf seconds\n",
+		 (aend.tv_sec - astart.tv_sec) +
+		 ((aend.tv_usec - astart.tv_usec) / 1000000.0));
+
 }
