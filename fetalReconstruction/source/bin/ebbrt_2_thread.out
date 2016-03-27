@@ -1,0 +1,1409 @@
+starting reconstruction on 2016-03-21
+PREV tbb_no_threads = -1
+NEW tbb_no_threads = 16
+Reconstructed volume name ... 3TStackReconstruction.nii.gz
+Number of stacks ... 4
+Reading stack ... data/masked_stack-1.nii.gz
+Reading stack ... data/masked_stack-2.nii.gz
+Reading stack ... data/masked_stack-3.nii.gz
+Reading stack ... data/masked_stack-4.nii.gz
+Slice thickness is 2.52778 2.53125 2.53165 2.53165 .
+Constructing volume with isotropic voxel size 2
+StackRegistrations start
+
+reconstruction.CreateAverage
+
+Number of slices: 248
+Masking slices ... done.
+_sigma_bias = 12
+_global_bias_correction = false 
+*************** packages.size() 0
+######## WAITING FOR BM ############
+NodeAllocator::Init() DefaultCpus=2 DefaultNumaNodes=2 DefaultRam=2
+Node Allocator bound to 10.1.16.1:45770
+EbbId: 65536
+Fdt written to /tmp/2b80-2255-fae3-c021
+executing /opt/khpy/kh alloc --ram 8 --cpu 2 --numa 2 -g 16 /tmp/ebbrt-contrib/fetalReconstruction/source/bin/./../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32 /tmp/2b80-2255-fae3-c021
+128
+gdb: 4018
+02:00:00:04:00:80
+tap: kh_128
+/opt/khdb/Networks/16/128/stdout
+/opt/khdb/Networks/16/128/stderr
+/opt/khdb/Networks/16/128/finish
+/opt/khdb/Networks/16/128/cmd
+
+128
+dir: /opt/khdb/Networks/16
+10.1.16.143
+all nodes initialized
+_slices.size() 248
+_transformations.size() 248
+Before serialize
+start = 0 end = 248
+Sending to .. 10.1.16.143 size: 64996296
+EbbRTReconstruction length of sent iobuf: 64996297 bytes
+Saving context 
+Received ip: 10.1.16.143
+Parsing it back, received: 969691 bytes
+Received back 
+EbbRTReconstruction done 
+checksum _reconstructed = 44669540.000000
+total time: 98.320200 seconds
+OUTPUT FROM NODES: 
+EbbRT Copyright 2013-2015 Boston University SESA Developers
+e820::map:
+000000000000000000-0x000000000009fbff usable
+0x000000000009fc00-0x000000000009ffff reserved
+0x00000000000f0000-0x00000000000fffff reserved
+0x0000000000100000-0x00000000bffdffff usable
+0x00000000bffe0000-0x00000000bfffffff reserved
+0x00000000feffc000-0x00000000feffffff reserved
+0x00000000fffc0000-0x00000000ffffffff reserved
+0x0000000100000000-0x000000023fffffff usable
+Early Page Allocator Reserve 0x0000000000009500-0x000000000000955f
+Early Page Allocator Reserve 0x000000000092b029-0x000000000092b089
+Early Page Allocator Reserve 0x000000000092b000-0x000000000092b00f
+Early Page Allocator Reserve 0x000000000092c000-0x000000000092c0be
+Early Page Allocator Reserve 0x000000000092b010-0x000000000092b028
+Fdt located
+Early Page Allocator Free 0x000000000092d000-0x000000003fffffff
+Early Page Allocator Free 0x0000000040000000-0x00000000bffdffff
+Early Page Allocator Free 0x0000000100000000-0x000000023fffffff
+ACPI: RSDP 0xf6250 000014 (v00 BOCHS )
+ACPI: RSDT 0xbffe17ed 000038 (v01 BOCHS  BXPCRSDT 00000001 BXPC 00000001)
+ACPI: FACP 0xbffe0bda 000074 (v01 BOCHS  BXPCFACP 00000001 BXPC 00000001)
+ACPI: DSDT 0xbffe0040 000B9A (v01 BOCHS  BXPCDSDT 00000001 BXPC 00000001)
+ACPI: FACS 0xbffe0000 000040
+ACPI: SSDT 0xbffe0c4e 0009F7 (v01 BOCHS  BXPCSSDT 00000001 BXPC 00000001)
+ACPI: APIC 0xbffe1645 000080 (v01 BOCHS  BXPCAPIC 00000001 BXPC 00000001)
+ACPI: HPET 0xbffe16c5 000038 (v01 BOCHS  BXPCHPET 00000001 BXPC 00000001)
+ACPI: SRAT 0xbffe16fd 0000F0 (v01 BOCHS  BXPCSRAT 00000001 BXPC 00000001)
+Local APIC: ACPI ID: 0 APIC ID: 0
+Local APIC: ACPI ID: 1 APIC ID: 1
+IO APIC: ID: 0
+Interrupt Override: 0 -> 2
+Interrupt Override: 5 -> 5
+Interrupt Override: 9 -> 9
+Interrupt Override: 10 -> 10
+Interrupt Override: 11 -> 11
+NMI on all processors: LINT1
+SRAT CPU affinity: 0 -> 0
+SRAT CPU affinity: 1 -> 1
+SRAT Memory affinity: 000000000000000000-0x000000000009ffff -> 0
+SRAT Memory affinity: 0x0000000000100000-0x00000000bfffffff -> 0
+SRAT Memory affinity: 0x0000000100000000-0x000000013fffffff -> 0
+SRAT Memory affinity: 0x0000000140000000-0x000000023fffffff -> 1
+Early Page Allocator NUMA mapping 0x000000000092d000-0x000000003fff3fff -> 0
+Early Page Allocator NUMA mapping 0x0000000040000000-0x00000000bffdffff -> 0
+Early Page Allocator NUMA mapping 0x0000000100000000-0x000000013fffffff -> 0
+Early Page Allocator NUMA mapping 0x0000000140000000-0x000000023fffffff -> 1
+Allocated fffffffeff800000 - fffffffeffffffff
+3d5c0000
+Core 1 online
+Allocated fffffffeff000000 - fffffffeff7fffff
+PCI: 0:1:1 - BAR4 0x000000000000c040 - 0x000000000000c050
+PCI: 0:2:0 - BAR0 0x00000000fd000000 - 0x00000000fe000000
+PCI: 0:2:0 - BAR2 0x00000000febd0000 - 0x00000000febd1000
+PCI: 0:3:0 - BAR0 0x000000000000c000 - 0x000000000000c040
+PCI: 0:3:0 - BAR1 0x00000000febd1000 - 0x00000000febd2000
+0:3:0
+MSIX - 6 entries at BAR1:0
+Allocated fffffffefefff000 - fffffffefeffffff
+Device features: 79ffffe7
+VRING: 3d5c8000
+Negotiated 2 queue pairs
+VRING: 3d5cc000
+VRING: 3d5d0000
+VRING: 3d414000
+VRING: 3d418000
+Mac Address: 02:00:00:04:00:80
+Dhcp Complete: 10.1.16.143
+Allocated fffffffefe7ff000 - fffffffefeffefff
+Allocating Global EbbIds from 20000 - 2ffff
+a011001:35860
+System initialization complete
+Allocated fffffffefa000000 - fffffffefa7fffff
+Allocated fffffffef9800000 - fffffffef9ffffff
+******************ReceiveMessage: Mon Mar 21 20:25:01 2016
+ ***********
+Received msg length: 64996297 bytes
+Number chain elements: 1
+Computed chain length: 64996297 bytes
+get buffer compute chain data length time: 0.000023 seconds
+deserialize time: 3.680715 seconds
+compute time: 68.852221 seconds
+ts length: 969690
+Sending 969691 bytes
+UNIMPLEMENTED: Free Large memory region
+UNIMPLEMENTED: Free Large memory region
+Node Allocator destructor! 
+executing /opt/khpy/kh rmnet 16
+Network 16 removed
+starting reconstruction on 2016-03-21
+PREV tbb_no_threads = -1
+NEW tbb_no_threads = 16
+Reconstructed volume name ... 3TStackReconstruction.nii.gz
+Number of stacks ... 4
+Reading stack ... data/masked_stack-1.nii.gz
+Reading stack ... data/masked_stack-2.nii.gz
+Reading stack ... data/masked_stack-3.nii.gz
+Reading stack ... data/masked_stack-4.nii.gz
+Slice thickness is 2.52778 2.53125 2.53165 2.53165 .
+Constructing volume with isotropic voxel size 2
+StackRegistrations start
+
+reconstruction.CreateAverage
+
+Number of slices: 248
+Masking slices ... done.
+_sigma_bias = 12
+_global_bias_correction = false 
+*************** packages.size() 0
+######## WAITING FOR BM ############
+NodeAllocator::Init() DefaultCpus=2 DefaultNumaNodes=2 DefaultRam=2
+Node Allocator bound to 10.1.17.1:50684
+EbbId: 65536
+Fdt written to /tmp/0ddd-ca57-0c94-931b
+executing /opt/khpy/kh alloc --ram 8 --cpu 2 --numa 2 -g 17 /tmp/ebbrt-contrib/fetalReconstruction/source/bin/./../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32 /tmp/0ddd-ca57-0c94-931b
+128
+gdb: 4018
+02:00:00:04:00:80
+tap: kh_128
+/opt/khdb/Networks/17/128/stdout
+/opt/khdb/Networks/17/128/stderr
+/opt/khdb/Networks/17/128/finish
+/opt/khdb/Networks/17/128/cmd
+
+128
+dir: /opt/khdb/Networks/17
+10.1.17.143
+all nodes initialized
+_slices.size() 248
+_transformations.size() 248
+Before serialize
+start = 0 end = 248
+Sending to .. 10.1.17.143 size: 64996296
+EbbRTReconstruction length of sent iobuf: 64996297 bytes
+Saving context 
+Received ip: 10.1.17.143
+Parsing it back, received: 969691 bytes
+Received back 
+EbbRTReconstruction done 
+checksum _reconstructed = 44669540.000000
+total time: 100.096581 seconds
+OUTPUT FROM NODES: 
+EbbRT Copyright 2013-2015 Boston University SESA Developers
+e820::map:
+000000000000000000-0x000000000009fbff usable
+0x000000000009fc00-0x000000000009ffff reserved
+0x00000000000f0000-0x00000000000fffff reserved
+0x0000000000100000-0x00000000bffdffff usable
+0x00000000bffe0000-0x00000000bfffffff reserved
+0x00000000feffc000-0x00000000feffffff reserved
+0x00000000fffc0000-0x00000000ffffffff reserved
+0x0000000100000000-0x000000023fffffff usable
+Early Page Allocator Reserve 0x0000000000009500-0x000000000000955f
+Early Page Allocator Reserve 0x000000000092b029-0x000000000092b089
+Early Page Allocator Reserve 0x000000000092b000-0x000000000092b00f
+Early Page Allocator Reserve 0x000000000092c000-0x000000000092c0be
+Early Page Allocator Reserve 0x000000000092b010-0x000000000092b028
+Fdt located
+Early Page Allocator Free 0x000000000092d000-0x000000003fffffff
+Early Page Allocator Free 0x0000000040000000-0x00000000bffdffff
+Early Page Allocator Free 0x0000000100000000-0x000000023fffffff
+ACPI: RSDP 0xf6250 000014 (v00 BOCHS )
+ACPI: RSDT 0xbffe17ed 000038 (v01 BOCHS  BXPCRSDT 00000001 BXPC 00000001)
+ACPI: FACP 0xbffe0bda 000074 (v01 BOCHS  BXPCFACP 00000001 BXPC 00000001)
+ACPI: DSDT 0xbffe0040 000B9A (v01 BOCHS  BXPCDSDT 00000001 BXPC 00000001)
+ACPI: FACS 0xbffe0000 000040
+ACPI: SSDT 0xbffe0c4e 0009F7 (v01 BOCHS  BXPCSSDT 00000001 BXPC 00000001)
+ACPI: APIC 0xbffe1645 000080 (v01 BOCHS  BXPCAPIC 00000001 BXPC 00000001)
+ACPI: HPET 0xbffe16c5 000038 (v01 BOCHS  BXPCHPET 00000001 BXPC 00000001)
+ACPI: SRAT 0xbffe16fd 0000F0 (v01 BOCHS  BXPCSRAT 00000001 BXPC 00000001)
+Local APIC: ACPI ID: 0 APIC ID: 0
+Local APIC: ACPI ID: 1 APIC ID: 1
+IO APIC: ID: 0
+Interrupt Override: 0 -> 2
+Interrupt Override: 5 -> 5
+Interrupt Override: 9 -> 9
+Interrupt Override: 10 -> 10
+Interrupt Override: 11 -> 11
+NMI on all processors: LINT1
+SRAT CPU affinity: 0 -> 0
+SRAT CPU affinity: 1 -> 1
+SRAT Memory affinity: 000000000000000000-0x000000000009ffff -> 0
+SRAT Memory affinity: 0x0000000000100000-0x00000000bfffffff -> 0
+SRAT Memory affinity: 0x0000000100000000-0x000000013fffffff -> 0
+SRAT Memory affinity: 0x0000000140000000-0x000000023fffffff -> 1
+Early Page Allocator NUMA mapping 0x000000000092d000-0x000000003fff3fff -> 0
+Early Page Allocator NUMA mapping 0x0000000040000000-0x00000000bffdffff -> 0
+Early Page Allocator NUMA mapping 0x0000000100000000-0x000000013fffffff -> 0
+Early Page Allocator NUMA mapping 0x0000000140000000-0x000000023fffffff -> 1
+Allocated fffffffeff800000 - fffffffeffffffff
+3d5c0000
+Core 1 online
+Allocated fffffffeff000000 - fffffffeff7fffff
+PCI: 0:1:1 - BAR4 0x000000000000c040 - 0x000000000000c050
+PCI: 0:2:0 - BAR0 0x00000000fd000000 - 0x00000000fe000000
+PCI: 0:2:0 - BAR2 0x00000000febd0000 - 0x00000000febd1000
+PCI: 0:3:0 - BAR0 0x000000000000c000 - 0x000000000000c040
+PCI: 0:3:0 - BAR1 0x00000000febd1000 - 0x00000000febd2000
+0:3:0
+MSIX - 6 entries at BAR1:0
+Allocated fffffffefefff000 - fffffffefeffffff
+Device features: 79ffffe7
+VRING: 3d5c8000
+Negotiated 2 queue pairs
+VRING: 3d5cc000
+VRING: 3d5d0000
+VRING: 3d414000
+VRING: 3d418000
+Mac Address: 02:00:00:04:00:80
+Dhcp Complete: 10.1.17.143
+Allocated fffffffefe7ff000 - fffffffefeffefff
+Allocating Global EbbIds from 20000 - 2ffff
+a011101:42929
+System initialization complete
+Allocated fffffffefdfff000 - fffffffefe7fefff
+******************ReceiveMessage: Mon Mar 21 20:26:42 2016
+ ***********
+Received msg length: 14576 bytes
+Number chain elements: 4775
+Computed chain length: 64996297 bytes
+get buffer compute chain data length time: 0.068596 seconds
+deserialize time: 3.230641 seconds
+compute time: 69.511986 seconds
+ts length: 969690
+Sending 969691 bytes
+UNIMPLEMENTED: Free Large memory region
+Node Allocator destructor! 
+executing /opt/khpy/kh rmnet 17
+Network 17 removed
+starting reconstruction on 2016-03-21
+PREV tbb_no_threads = -1
+NEW tbb_no_threads = 16
+Reconstructed volume name ... 3TStackReconstruction.nii.gz
+Number of stacks ... 4
+Reading stack ... data/masked_stack-1.nii.gz
+Reading stack ... data/masked_stack-2.nii.gz
+Reading stack ... data/masked_stack-3.nii.gz
+Reading stack ... data/masked_stack-4.nii.gz
+Slice thickness is 2.52778 2.53125 2.53165 2.53165 .
+Constructing volume with isotropic voxel size 2
+StackRegistrations start
+
+reconstruction.CreateAverage
+
+Number of slices: 248
+Masking slices ... done.
+_sigma_bias = 12
+_global_bias_correction = false 
+*************** packages.size() 0
+######## WAITING FOR BM ############
+NodeAllocator::Init() DefaultCpus=2 DefaultNumaNodes=2 DefaultRam=2
+Node Allocator bound to 10.1.18.1:38989
+EbbId: 65536
+Fdt written to /tmp/f80a-558c-3f03-1135
+executing /opt/khpy/kh alloc --ram 8 --cpu 2 --numa 2 -g 18 /tmp/ebbrt-contrib/fetalReconstruction/source/bin/./../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32 /tmp/f80a-558c-3f03-1135
+128
+gdb: 4018
+02:00:00:04:00:80
+tap: kh_128
+/opt/khdb/Networks/18/128/stdout
+/opt/khdb/Networks/18/128/stderr
+/opt/khdb/Networks/18/128/finish
+/opt/khdb/Networks/18/128/cmd
+
+128
+dir: /opt/khdb/Networks/18
+10.1.18.143
+all nodes initialized
+_slices.size() 248
+_transformations.size() 248
+Before serialize
+start = 0 end = 248
+Sending to .. 10.1.18.143 size: 64996296
+EbbRTReconstruction length of sent iobuf: 64996297 bytes
+Saving context 
+Received ip: 10.1.18.143
+Parsing it back, received: 969691 bytes
+Received back 
+EbbRTReconstruction done 
+checksum _reconstructed = 44669540.000000
+total time: 99.965095 seconds
+OUTPUT FROM NODES: 
+EbbRT Copyright 2013-2015 Boston University SESA Developers
+e820::map:
+000000000000000000-0x000000000009fbff usable
+0x000000000009fc00-0x000000000009ffff reserved
+0x00000000000f0000-0x00000000000fffff reserved
+0x0000000000100000-0x00000000bffdffff usable
+0x00000000bffe0000-0x00000000bfffffff reserved
+0x00000000feffc000-0x00000000feffffff reserved
+0x00000000fffc0000-0x00000000ffffffff reserved
+0x0000000100000000-0x000000023fffffff usable
+Early Page Allocator Reserve 0x0000000000009500-0x000000000000955f
+Early Page Allocator Reserve 0x000000000092b029-0x000000000092b089
+Early Page Allocator Reserve 0x000000000092b000-0x000000000092b00f
+Early Page Allocator Reserve 0x000000000092c000-0x000000000092c0be
+Early Page Allocator Reserve 0x000000000092b010-0x000000000092b028
+Fdt located
+Early Page Allocator Free 0x000000000092d000-0x000000003fffffff
+Early Page Allocator Free 0x0000000040000000-0x00000000bffdffff
+Early Page Allocator Free 0x0000000100000000-0x000000023fffffff
+ACPI: RSDP 0xf6250 000014 (v00 BOCHS )
+ACPI: RSDT 0xbffe17ed 000038 (v01 BOCHS  BXPCRSDT 00000001 BXPC 00000001)
+ACPI: FACP 0xbffe0bda 000074 (v01 BOCHS  BXPCFACP 00000001 BXPC 00000001)
+ACPI: DSDT 0xbffe0040 000B9A (v01 BOCHS  BXPCDSDT 00000001 BXPC 00000001)
+ACPI: FACS 0xbffe0000 000040
+ACPI: SSDT 0xbffe0c4e 0009F7 (v01 BOCHS  BXPCSSDT 00000001 BXPC 00000001)
+ACPI: APIC 0xbffe1645 000080 (v01 BOCHS  BXPCAPIC 00000001 BXPC 00000001)
+ACPI: HPET 0xbffe16c5 000038 (v01 BOCHS  BXPCHPET 00000001 BXPC 00000001)
+ACPI: SRAT 0xbffe16fd 0000F0 (v01 BOCHS  BXPCSRAT 00000001 BXPC 00000001)
+Local APIC: ACPI ID: 0 APIC ID: 0
+Local APIC: ACPI ID: 1 APIC ID: 1
+IO APIC: ID: 0
+Interrupt Override: 0 -> 2
+Interrupt Override: 5 -> 5
+Interrupt Override: 9 -> 9
+Interrupt Override: 10 -> 10
+Interrupt Override: 11 -> 11
+NMI on all processors: LINT1
+SRAT CPU affinity: 0 -> 0
+SRAT CPU affinity: 1 -> 1
+SRAT Memory affinity: 000000000000000000-0x000000000009ffff -> 0
+SRAT Memory affinity: 0x0000000000100000-0x00000000bfffffff -> 0
+SRAT Memory affinity: 0x0000000100000000-0x000000013fffffff -> 0
+SRAT Memory affinity: 0x0000000140000000-0x000000023fffffff -> 1
+Early Page Allocator NUMA mapping 0x000000000092d000-0x000000003fff3fff -> 0
+Early Page Allocator NUMA mapping 0x0000000040000000-0x00000000bffdffff -> 0
+Early Page Allocator NUMA mapping 0x0000000100000000-0x000000013fffffff -> 0
+Early Page Allocator NUMA mapping 0x0000000140000000-0x000000023fffffff -> 1
+Allocated fffffffeff800000 - fffffffeffffffff
+3d5c0000
+Core 1 online
+Allocated fffffffeff000000 - fffffffeff7fffff
+PCI: 0:1:1 - BAR4 0x000000000000c040 - 0x000000000000c050
+PCI: 0:2:0 - BAR0 0x00000000fd000000 - 0x00000000fe000000
+PCI: 0:2:0 - BAR2 0x00000000febd0000 - 0x00000000febd1000
+PCI: 0:3:0 - BAR0 0x000000000000c000 - 0x000000000000c040
+PCI: 0:3:0 - BAR1 0x00000000febd1000 - 0x00000000febd2000
+0:3:0
+MSIX - 6 entries at BAR1:0
+Allocated fffffffefefff000 - fffffffefeffffff
+Device features: 79ffffe7
+VRING: 3d5c8000
+Negotiated 2 queue pairs
+VRING: 3d5cc000
+VRING: 3d5d0000
+VRING: 3d414000
+VRING: 3d418000
+Mac Address: 02:00:00:04:00:80
+Dhcp Complete: 10.1.18.143
+Allocated fffffffefe7ff000 - fffffffefeffefff
+Allocating Global EbbIds from 20000 - 2ffff
+a011201:39049
+System initialization complete
+Allocated fffffffefdfff000 - fffffffefe7fefff
+******************ReceiveMessage: Mon Mar 21 20:28:23 2016
+ ***********
+Received msg length: 14576 bytes
+Number chain elements: 4453
+Computed chain length: 64996297 bytes
+get buffer compute chain data length time: 0.060255 seconds
+deserialize time: 3.173704 seconds
+compute time: 70.184178 seconds
+ts length: 969690
+Sending 969691 bytes
+UNIMPLEMENTED: Free Large memory region
+Node Allocator destructor! 
+executing /opt/khpy/kh rmnet 18
+Network 18 removed
+starting reconstruction on 2016-03-21
+PREV tbb_no_threads = -1
+NEW tbb_no_threads = 16
+Reconstructed volume name ... 3TStackReconstruction.nii.gz
+Number of stacks ... 4
+Reading stack ... data/masked_stack-1.nii.gz
+Reading stack ... data/masked_stack-2.nii.gz
+Reading stack ... data/masked_stack-3.nii.gz
+Reading stack ... data/masked_stack-4.nii.gz
+Slice thickness is 2.52778 2.53125 2.53165 2.53165 .
+Constructing volume with isotropic voxel size 2
+StackRegistrations start
+
+reconstruction.CreateAverage
+
+Number of slices: 248
+Masking slices ... done.
+_sigma_bias = 12
+_global_bias_correction = false 
+*************** packages.size() 0
+######## WAITING FOR BM ############
+NodeAllocator::Init() DefaultCpus=2 DefaultNumaNodes=2 DefaultRam=2
+Node Allocator bound to 10.1.19.1:51807
+EbbId: 65536
+Fdt written to /tmp/fd7a-aac4-fc3c-7ead
+executing /opt/khpy/kh alloc --ram 8 --cpu 2 --numa 2 -g 19 /tmp/ebbrt-contrib/fetalReconstruction/source/bin/./../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32 /tmp/fd7a-aac4-fc3c-7ead
+128
+gdb: 4018
+02:00:00:04:00:80
+tap: kh_128
+/opt/khdb/Networks/19/128/stdout
+/opt/khdb/Networks/19/128/stderr
+/opt/khdb/Networks/19/128/finish
+/opt/khdb/Networks/19/128/cmd
+
+128
+dir: /opt/khdb/Networks/19
+10.1.19.143
+all nodes initialized
+_slices.size() 248
+_transformations.size() 248
+Before serialize
+start = 0 end = 248
+Sending to .. 10.1.19.143 size: 64996296
+EbbRTReconstruction length of sent iobuf: 64996297 bytes
+Saving context 
+Received ip: 10.1.19.143
+Parsing it back, received: 969691 bytes
+Received back 
+EbbRTReconstruction done 
+checksum _reconstructed = 44669540.000000
+total time: 105.835953 seconds
+OUTPUT FROM NODES: 
+EbbRT Copyright 2013-2015 Boston University SESA Developers
+e820::map:
+000000000000000000-0x000000000009fbff usable
+0x000000000009fc00-0x000000000009ffff reserved
+0x00000000000f0000-0x00000000000fffff reserved
+0x0000000000100000-0x00000000bffdffff usable
+0x00000000bffe0000-0x00000000bfffffff reserved
+0x00000000feffc000-0x00000000feffffff reserved
+0x00000000fffc0000-0x00000000ffffffff reserved
+0x0000000100000000-0x000000023fffffff usable
+Early Page Allocator Reserve 0x0000000000009500-0x000000000000955f
+Early Page Allocator Reserve 0x000000000092b029-0x000000000092b089
+Early Page Allocator Reserve 0x000000000092b000-0x000000000092b00f
+Early Page Allocator Reserve 0x000000000092c000-0x000000000092c0be
+Early Page Allocator Reserve 0x000000000092b010-0x000000000092b028
+Fdt located
+Early Page Allocator Free 0x000000000092d000-0x000000003fffffff
+Early Page Allocator Free 0x0000000040000000-0x00000000bffdffff
+Early Page Allocator Free 0x0000000100000000-0x000000023fffffff
+ACPI: RSDP 0xf6250 000014 (v00 BOCHS )
+ACPI: RSDT 0xbffe17ed 000038 (v01 BOCHS  BXPCRSDT 00000001 BXPC 00000001)
+ACPI: FACP 0xbffe0bda 000074 (v01 BOCHS  BXPCFACP 00000001 BXPC 00000001)
+ACPI: DSDT 0xbffe0040 000B9A (v01 BOCHS  BXPCDSDT 00000001 BXPC 00000001)
+ACPI: FACS 0xbffe0000 000040
+ACPI: SSDT 0xbffe0c4e 0009F7 (v01 BOCHS  BXPCSSDT 00000001 BXPC 00000001)
+ACPI: APIC 0xbffe1645 000080 (v01 BOCHS  BXPCAPIC 00000001 BXPC 00000001)
+ACPI: HPET 0xbffe16c5 000038 (v01 BOCHS  BXPCHPET 00000001 BXPC 00000001)
+ACPI: SRAT 0xbffe16fd 0000F0 (v01 BOCHS  BXPCSRAT 00000001 BXPC 00000001)
+Local APIC: ACPI ID: 0 APIC ID: 0
+Local APIC: ACPI ID: 1 APIC ID: 1
+IO APIC: ID: 0
+Interrupt Override: 0 -> 2
+Interrupt Override: 5 -> 5
+Interrupt Override: 9 -> 9
+Interrupt Override: 10 -> 10
+Interrupt Override: 11 -> 11
+NMI on all processors: LINT1
+SRAT CPU affinity: 0 -> 0
+SRAT CPU affinity: 1 -> 1
+SRAT Memory affinity: 000000000000000000-0x000000000009ffff -> 0
+SRAT Memory affinity: 0x0000000000100000-0x00000000bfffffff -> 0
+SRAT Memory affinity: 0x0000000100000000-0x000000013fffffff -> 0
+SRAT Memory affinity: 0x0000000140000000-0x000000023fffffff -> 1
+Early Page Allocator NUMA mapping 0x000000000092d000-0x000000003fff3fff -> 0
+Early Page Allocator NUMA mapping 0x0000000040000000-0x00000000bffdffff -> 0
+Early Page Allocator NUMA mapping 0x0000000100000000-0x000000013fffffff -> 0
+Early Page Allocator NUMA mapping 0x0000000140000000-0x000000023fffffff -> 1
+Allocated fffffffeff800000 - fffffffeffffffff
+3d5c0000
+Core 1 online
+Allocated fffffffeff000000 - fffffffeff7fffff
+PCI: 0:1:1 - BAR4 0x000000000000c040 - 0x000000000000c050
+PCI: 0:2:0 - BAR0 0x00000000fd000000 - 0x00000000fe000000
+PCI: 0:2:0 - BAR2 0x00000000febd0000 - 0x00000000febd1000
+PCI: 0:3:0 - BAR0 0x000000000000c000 - 0x000000000000c040
+PCI: 0:3:0 - BAR1 0x00000000febd1000 - 0x00000000febd2000
+0:3:0
+MSIX - 6 entries at BAR1:0
+Allocated fffffffefefff000 - fffffffefeffffff
+Device features: 79ffffe7
+VRING: 3d5c8000
+Negotiated 2 queue pairs
+VRING: 3d5cc000
+VRING: 3d5d0000
+VRING: 3d414000
+VRING: 3d418000
+Mac Address: 02:00:00:04:00:80
+Dhcp Complete: 10.1.19.143
+Allocated fffffffefe7ff000 - fffffffefeffefff
+Allocating Global EbbIds from 20000 - 2ffff
+a011301:43810
+System initialization complete
+Allocated fffffffefa000000 - fffffffefa7fffff
+Allocated fffffffef9800000 - fffffffef9ffffff
+******************ReceiveMessage: Mon Mar 21 20:30:04 2016
+ ***********
+Received msg length: 64996297 bytes
+Number chain elements: 1
+Computed chain length: 64996297 bytes
+get buffer compute chain data length time: 0.000019 seconds
+deserialize time: 3.674273 seconds
+compute time: 75.278599 seconds
+ts length: 969690
+Sending 969691 bytes
+UNIMPLEMENTED: Free Large memory region
+UNIMPLEMENTED: Free Large memory region
+Node Allocator destructor! 
+executing /opt/khpy/kh rmnet 19
+Network 19 removed
+starting reconstruction on 2016-03-21
+PREV tbb_no_threads = -1
+NEW tbb_no_threads = 16
+Reconstructed volume name ... 3TStackReconstruction.nii.gz
+Number of stacks ... 4
+Reading stack ... data/masked_stack-1.nii.gz
+Reading stack ... data/masked_stack-2.nii.gz
+Reading stack ... data/masked_stack-3.nii.gz
+Reading stack ... data/masked_stack-4.nii.gz
+Slice thickness is 2.52778 2.53125 2.53165 2.53165 .
+Constructing volume with isotropic voxel size 2
+StackRegistrations start
+
+reconstruction.CreateAverage
+
+Number of slices: 248
+Masking slices ... done.
+_sigma_bias = 12
+_global_bias_correction = false 
+*************** packages.size() 0
+######## WAITING FOR BM ############
+NodeAllocator::Init() DefaultCpus=2 DefaultNumaNodes=2 DefaultRam=2
+Node Allocator bound to 10.1.20.1:39216
+EbbId: 65536
+Fdt written to /tmp/1d4c-0987-06f9-112b
+executing /opt/khpy/kh alloc --ram 8 --cpu 2 --numa 2 -g 20 /tmp/ebbrt-contrib/fetalReconstruction/source/bin/./../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32 /tmp/1d4c-0987-06f9-112b
+128
+gdb: 4018
+02:00:00:04:00:80
+tap: kh_128
+/opt/khdb/Networks/20/128/stdout
+/opt/khdb/Networks/20/128/stderr
+/opt/khdb/Networks/20/128/finish
+/opt/khdb/Networks/20/128/cmd
+
+128
+dir: /opt/khdb/Networks/20
+10.1.20.143
+all nodes initialized
+_slices.size() 248
+_transformations.size() 248
+Before serialize
+start = 0 end = 248
+Sending to .. 10.1.20.143 size: 64996296
+EbbRTReconstruction length of sent iobuf: 64996297 bytes
+Saving context 
+Received ip: 10.1.20.143
+Parsing it back, received: 969691 bytes
+Received back 
+EbbRTReconstruction done 
+checksum _reconstructed = 44669540.000000
+total time: 98.849757 seconds
+OUTPUT FROM NODES: 
+EbbRT Copyright 2013-2015 Boston University SESA Developers
+e820::map:
+000000000000000000-0x000000000009fbff usable
+0x000000000009fc00-0x000000000009ffff reserved
+0x00000000000f0000-0x00000000000fffff reserved
+0x0000000000100000-0x00000000bffdffff usable
+0x00000000bffe0000-0x00000000bfffffff reserved
+0x00000000feffc000-0x00000000feffffff reserved
+0x00000000fffc0000-0x00000000ffffffff reserved
+0x0000000100000000-0x000000023fffffff usable
+Early Page Allocator Reserve 0x0000000000009500-0x000000000000955f
+Early Page Allocator Reserve 0x000000000092b029-0x000000000092b089
+Early Page Allocator Reserve 0x000000000092b000-0x000000000092b00f
+Early Page Allocator Reserve 0x000000000092c000-0x000000000092c0be
+Early Page Allocator Reserve 0x000000000092b010-0x000000000092b028
+Fdt located
+Early Page Allocator Free 0x000000000092d000-0x000000003fffffff
+Early Page Allocator Free 0x0000000040000000-0x00000000bffdffff
+Early Page Allocator Free 0x0000000100000000-0x000000023fffffff
+ACPI: RSDP 0xf6250 000014 (v00 BOCHS )
+ACPI: RSDT 0xbffe17ed 000038 (v01 BOCHS  BXPCRSDT 00000001 BXPC 00000001)
+ACPI: FACP 0xbffe0bda 000074 (v01 BOCHS  BXPCFACP 00000001 BXPC 00000001)
+ACPI: DSDT 0xbffe0040 000B9A (v01 BOCHS  BXPCDSDT 00000001 BXPC 00000001)
+ACPI: FACS 0xbffe0000 000040
+ACPI: SSDT 0xbffe0c4e 0009F7 (v01 BOCHS  BXPCSSDT 00000001 BXPC 00000001)
+ACPI: APIC 0xbffe1645 000080 (v01 BOCHS  BXPCAPIC 00000001 BXPC 00000001)
+ACPI: HPET 0xbffe16c5 000038 (v01 BOCHS  BXPCHPET 00000001 BXPC 00000001)
+ACPI: SRAT 0xbffe16fd 0000F0 (v01 BOCHS  BXPCSRAT 00000001 BXPC 00000001)
+Local APIC: ACPI ID: 0 APIC ID: 0
+Local APIC: ACPI ID: 1 APIC ID: 1
+IO APIC: ID: 0
+Interrupt Override: 0 -> 2
+Interrupt Override: 5 -> 5
+Interrupt Override: 9 -> 9
+Interrupt Override: 10 -> 10
+Interrupt Override: 11 -> 11
+NMI on all processors: LINT1
+SRAT CPU affinity: 0 -> 0
+SRAT CPU affinity: 1 -> 1
+SRAT Memory affinity: 000000000000000000-0x000000000009ffff -> 0
+SRAT Memory affinity: 0x0000000000100000-0x00000000bfffffff -> 0
+SRAT Memory affinity: 0x0000000100000000-0x000000013fffffff -> 0
+SRAT Memory affinity: 0x0000000140000000-0x000000023fffffff -> 1
+Early Page Allocator NUMA mapping 0x000000000092d000-0x000000003fff3fff -> 0
+Early Page Allocator NUMA mapping 0x0000000040000000-0x00000000bffdffff -> 0
+Early Page Allocator NUMA mapping 0x0000000100000000-0x000000013fffffff -> 0
+Early Page Allocator NUMA mapping 0x0000000140000000-0x000000023fffffff -> 1
+Allocated fffffffeff800000 - fffffffeffffffff
+3d5c0000
+Core 1 online
+Allocated fffffffeff000000 - fffffffeff7fffff
+PCI: 0:1:1 - BAR4 0x000000000000c040 - 0x000000000000c050
+PCI: 0:2:0 - BAR0 0x00000000fd000000 - 0x00000000fe000000
+PCI: 0:2:0 - BAR2 0x00000000febd0000 - 0x00000000febd1000
+PCI: 0:3:0 - BAR0 0x000000000000c000 - 0x000000000000c040
+PCI: 0:3:0 - BAR1 0x00000000febd1000 - 0x00000000febd2000
+0:3:0
+MSIX - 6 entries at BAR1:0
+Allocated fffffffefefff000 - fffffffefeffffff
+Device features: 79ffffe7
+VRING: 3d5c8000
+Negotiated 2 queue pairs
+VRING: 3d5cc000
+VRING: 3d5d0000
+VRING: 3d414000
+VRING: 3d418000
+Mac Address: 02:00:00:04:00:80
+Dhcp Complete: 10.1.20.143
+Allocated fffffffefe7ff000 - fffffffefeffefff
+Allocating Global EbbIds from 20000 - 2ffff
+a011401:44008
+System initialization complete
+Allocated fffffffefdfff000 - fffffffefe7fefff
+******************ReceiveMessage: Mon Mar 21 20:31:50 2016
+ ***********
+Received msg length: 14576 bytes
+Number chain elements: 4561
+Computed chain length: 64996297 bytes
+get buffer compute chain data length time: 0.068885 seconds
+deserialize time: 3.239984 seconds
+compute time: 69.666335 seconds
+ts length: 969690
+Sending 969691 bytes
+UNIMPLEMENTED: Free Large memory region
+Node Allocator destructor! 
+executing /opt/khpy/kh rmnet 20
+Network 20 removed
+starting reconstruction on 2016-03-21
+PREV tbb_no_threads = -1
+NEW tbb_no_threads = 16
+Reconstructed volume name ... 3TStackReconstruction.nii.gz
+Number of stacks ... 4
+Reading stack ... data/masked_stack-1.nii.gz
+Reading stack ... data/masked_stack-2.nii.gz
+Reading stack ... data/masked_stack-3.nii.gz
+Reading stack ... data/masked_stack-4.nii.gz
+Slice thickness is 2.52778 2.53125 2.53165 2.53165 .
+Constructing volume with isotropic voxel size 2
+StackRegistrations start
+
+reconstruction.CreateAverage
+
+Number of slices: 248
+Masking slices ... done.
+_sigma_bias = 12
+_global_bias_correction = false 
+*************** packages.size() 0
+######## WAITING FOR BM ############
+NodeAllocator::Init() DefaultCpus=2 DefaultNumaNodes=2 DefaultRam=2
+Node Allocator bound to 10.1.21.1:57515
+EbbId: 65536
+Fdt written to /tmp/9d7a-0064-616c-24ed
+executing /opt/khpy/kh alloc --ram 8 --cpu 2 --numa 2 -g 21 /tmp/ebbrt-contrib/fetalReconstruction/source/bin/./../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32 /tmp/9d7a-0064-616c-24ed
+128
+gdb: 4018
+02:00:00:04:00:80
+tap: kh_128
+/opt/khdb/Networks/21/128/stdout
+/opt/khdb/Networks/21/128/stderr
+/opt/khdb/Networks/21/128/finish
+/opt/khdb/Networks/21/128/cmd
+
+128
+dir: /opt/khdb/Networks/21
+10.1.21.143
+all nodes initialized
+_slices.size() 248
+_transformations.size() 248
+Before serialize
+start = 0 end = 248
+Sending to .. 10.1.21.143 size: 64996296
+EbbRTReconstruction length of sent iobuf: 64996297 bytes
+Saving context 
+Received ip: 10.1.21.143
+Parsing it back, received: 969691 bytes
+Received back 
+EbbRTReconstruction done 
+checksum _reconstructed = 44669540.000000
+total time: 103.738811 seconds
+OUTPUT FROM NODES: 
+EbbRT Copyright 2013-2015 Boston University SESA Developers
+e820::map:
+000000000000000000-0x000000000009fbff usable
+0x000000000009fc00-0x000000000009ffff reserved
+0x00000000000f0000-0x00000000000fffff reserved
+0x0000000000100000-0x00000000bffdffff usable
+0x00000000bffe0000-0x00000000bfffffff reserved
+0x00000000feffc000-0x00000000feffffff reserved
+0x00000000fffc0000-0x00000000ffffffff reserved
+0x0000000100000000-0x000000023fffffff usable
+Early Page Allocator Reserve 0x0000000000009500-0x000000000000955f
+Early Page Allocator Reserve 0x000000000092b029-0x000000000092b089
+Early Page Allocator Reserve 0x000000000092b000-0x000000000092b00f
+Early Page Allocator Reserve 0x000000000092c000-0x000000000092c0be
+Early Page Allocator Reserve 0x000000000092b010-0x000000000092b028
+Fdt located
+Early Page Allocator Free 0x000000000092d000-0x000000003fffffff
+Early Page Allocator Free 0x0000000040000000-0x00000000bffdffff
+Early Page Allocator Free 0x0000000100000000-0x000000023fffffff
+ACPI: RSDP 0xf6250 000014 (v00 BOCHS )
+ACPI: RSDT 0xbffe17ed 000038 (v01 BOCHS  BXPCRSDT 00000001 BXPC 00000001)
+ACPI: FACP 0xbffe0bda 000074 (v01 BOCHS  BXPCFACP 00000001 BXPC 00000001)
+ACPI: DSDT 0xbffe0040 000B9A (v01 BOCHS  BXPCDSDT 00000001 BXPC 00000001)
+ACPI: FACS 0xbffe0000 000040
+ACPI: SSDT 0xbffe0c4e 0009F7 (v01 BOCHS  BXPCSSDT 00000001 BXPC 00000001)
+ACPI: APIC 0xbffe1645 000080 (v01 BOCHS  BXPCAPIC 00000001 BXPC 00000001)
+ACPI: HPET 0xbffe16c5 000038 (v01 BOCHS  BXPCHPET 00000001 BXPC 00000001)
+ACPI: SRAT 0xbffe16fd 0000F0 (v01 BOCHS  BXPCSRAT 00000001 BXPC 00000001)
+Local APIC: ACPI ID: 0 APIC ID: 0
+Local APIC: ACPI ID: 1 APIC ID: 1
+IO APIC: ID: 0
+Interrupt Override: 0 -> 2
+Interrupt Override: 5 -> 5
+Interrupt Override: 9 -> 9
+Interrupt Override: 10 -> 10
+Interrupt Override: 11 -> 11
+NMI on all processors: LINT1
+SRAT CPU affinity: 0 -> 0
+SRAT CPU affinity: 1 -> 1
+SRAT Memory affinity: 000000000000000000-0x000000000009ffff -> 0
+SRAT Memory affinity: 0x0000000000100000-0x00000000bfffffff -> 0
+SRAT Memory affinity: 0x0000000100000000-0x000000013fffffff -> 0
+SRAT Memory affinity: 0x0000000140000000-0x000000023fffffff -> 1
+Early Page Allocator NUMA mapping 0x000000000092d000-0x000000003fff3fff -> 0
+Early Page Allocator NUMA mapping 0x0000000040000000-0x00000000bffdffff -> 0
+Early Page Allocator NUMA mapping 0x0000000100000000-0x000000013fffffff -> 0
+Early Page Allocator NUMA mapping 0x0000000140000000-0x000000023fffffff -> 1
+Allocated fffffffeff800000 - fffffffeffffffff
+3d5c0000
+Core 1 online
+Allocated fffffffeff000000 - fffffffeff7fffff
+PCI: 0:1:1 - BAR4 0x000000000000c040 - 0x000000000000c050
+PCI: 0:2:0 - BAR0 0x00000000fd000000 - 0x00000000fe000000
+PCI: 0:2:0 - BAR2 0x00000000febd0000 - 0x00000000febd1000
+PCI: 0:3:0 - BAR0 0x000000000000c000 - 0x000000000000c040
+PCI: 0:3:0 - BAR1 0x00000000febd1000 - 0x00000000febd2000
+0:3:0
+MSIX - 6 entries at BAR1:0
+Allocated fffffffefefff000 - fffffffefeffffff
+Device features: 79ffffe7
+VRING: 3d5c8000
+Negotiated 2 queue pairs
+VRING: 3d5cc000
+VRING: 3d5d0000
+VRING: 3d414000
+VRING: 3d418000
+Mac Address: 02:00:00:04:00:80
+Dhcp Complete: 10.1.21.143
+Allocated fffffffefe7ff000 - fffffffefeffefff
+Allocating Global EbbIds from 20000 - 2ffff
+a011501:37030
+System initialization complete
+Allocated fffffffefdfff000 - fffffffefe7fefff
+Allocated fffffffefd7ff000 - fffffffefdffefff
+******************ReceiveMessage: Mon Mar 21 20:33:32 2016
+ ***********
+Received msg length: 14576 bytes
+Number chain elements: 4453
+Computed chain length: 64996297 bytes
+get buffer compute chain data length time: 0.069176 seconds
+deserialize time: 3.682197 seconds
+compute time: 72.782806 seconds
+ts length: 969690
+Sending 969691 bytes
+UNIMPLEMENTED: Free Large memory region
+Node Allocator destructor! 
+executing /opt/khpy/kh rmnet 21
+Network 21 removed
+starting reconstruction on 2016-03-21
+PREV tbb_no_threads = -1
+NEW tbb_no_threads = 16
+Reconstructed volume name ... 3TStackReconstruction.nii.gz
+Number of stacks ... 4
+Reading stack ... data/masked_stack-1.nii.gz
+Reading stack ... data/masked_stack-2.nii.gz
+Reading stack ... data/masked_stack-3.nii.gz
+Reading stack ... data/masked_stack-4.nii.gz
+Slice thickness is 2.52778 2.53125 2.53165 2.53165 .
+Constructing volume with isotropic voxel size 2
+StackRegistrations start
+
+reconstruction.CreateAverage
+
+Number of slices: 248
+Masking slices ... done.
+_sigma_bias = 12
+_global_bias_correction = false 
+*************** packages.size() 0
+######## WAITING FOR BM ############
+NodeAllocator::Init() DefaultCpus=2 DefaultNumaNodes=2 DefaultRam=2
+Node Allocator bound to 10.1.22.1:45467
+EbbId: 65536
+Fdt written to /tmp/5f99-d423-e862-0456
+executing /opt/khpy/kh alloc --ram 8 --cpu 2 --numa 2 -g 22 /tmp/ebbrt-contrib/fetalReconstruction/source/bin/./../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32 /tmp/5f99-d423-e862-0456
+128
+gdb: 4018
+02:00:00:04:00:80
+tap: kh_128
+/opt/khdb/Networks/22/128/stdout
+/opt/khdb/Networks/22/128/stderr
+/opt/khdb/Networks/22/128/finish
+/opt/khdb/Networks/22/128/cmd
+
+128
+dir: /opt/khdb/Networks/22
+10.1.22.143
+all nodes initialized
+_slices.size() 248
+_transformations.size() 248
+Before serialize
+start = 0 end = 248
+Sending to .. 10.1.22.143 size: 64996296
+EbbRTReconstruction length of sent iobuf: 64996297 bytes
+Saving context 
+Received ip: 10.1.22.143
+Parsing it back, received: 969691 bytes
+Received back 
+EbbRTReconstruction done 
+checksum _reconstructed = 44669540.000000
+total time: 99.054641 seconds
+OUTPUT FROM NODES: 
+EbbRT Copyright 2013-2015 Boston University SESA Developers
+e820::map:
+000000000000000000-0x000000000009fbff usable
+0x000000000009fc00-0x000000000009ffff reserved
+0x00000000000f0000-0x00000000000fffff reserved
+0x0000000000100000-0x00000000bffdffff usable
+0x00000000bffe0000-0x00000000bfffffff reserved
+0x00000000feffc000-0x00000000feffffff reserved
+0x00000000fffc0000-0x00000000ffffffff reserved
+0x0000000100000000-0x000000023fffffff usable
+Early Page Allocator Reserve 0x0000000000009500-0x000000000000955f
+Early Page Allocator Reserve 0x000000000092b029-0x000000000092b089
+Early Page Allocator Reserve 0x000000000092b000-0x000000000092b00f
+Early Page Allocator Reserve 0x000000000092c000-0x000000000092c0be
+Early Page Allocator Reserve 0x000000000092b010-0x000000000092b028
+Fdt located
+Early Page Allocator Free 0x000000000092d000-0x000000003fffffff
+Early Page Allocator Free 0x0000000040000000-0x00000000bffdffff
+Early Page Allocator Free 0x0000000100000000-0x000000023fffffff
+ACPI: RSDP 0xf6250 000014 (v00 BOCHS )
+ACPI: RSDT 0xbffe17ed 000038 (v01 BOCHS  BXPCRSDT 00000001 BXPC 00000001)
+ACPI: FACP 0xbffe0bda 000074 (v01 BOCHS  BXPCFACP 00000001 BXPC 00000001)
+ACPI: DSDT 0xbffe0040 000B9A (v01 BOCHS  BXPCDSDT 00000001 BXPC 00000001)
+ACPI: FACS 0xbffe0000 000040
+ACPI: SSDT 0xbffe0c4e 0009F7 (v01 BOCHS  BXPCSSDT 00000001 BXPC 00000001)
+ACPI: APIC 0xbffe1645 000080 (v01 BOCHS  BXPCAPIC 00000001 BXPC 00000001)
+ACPI: HPET 0xbffe16c5 000038 (v01 BOCHS  BXPCHPET 00000001 BXPC 00000001)
+ACPI: SRAT 0xbffe16fd 0000F0 (v01 BOCHS  BXPCSRAT 00000001 BXPC 00000001)
+Local APIC: ACPI ID: 0 APIC ID: 0
+Local APIC: ACPI ID: 1 APIC ID: 1
+IO APIC: ID: 0
+Interrupt Override: 0 -> 2
+Interrupt Override: 5 -> 5
+Interrupt Override: 9 -> 9
+Interrupt Override: 10 -> 10
+Interrupt Override: 11 -> 11
+NMI on all processors: LINT1
+SRAT CPU affinity: 0 -> 0
+SRAT CPU affinity: 1 -> 1
+SRAT Memory affinity: 000000000000000000-0x000000000009ffff -> 0
+SRAT Memory affinity: 0x0000000000100000-0x00000000bfffffff -> 0
+SRAT Memory affinity: 0x0000000100000000-0x000000013fffffff -> 0
+SRAT Memory affinity: 0x0000000140000000-0x000000023fffffff -> 1
+Early Page Allocator NUMA mapping 0x000000000092d000-0x000000003fff3fff -> 0
+Early Page Allocator NUMA mapping 0x0000000040000000-0x00000000bffdffff -> 0
+Early Page Allocator NUMA mapping 0x0000000100000000-0x000000013fffffff -> 0
+Early Page Allocator NUMA mapping 0x0000000140000000-0x000000023fffffff -> 1
+Allocated fffffffeff800000 - fffffffeffffffff
+3d5c0000
+Core 1 online
+Allocated fffffffeff000000 - fffffffeff7fffff
+PCI: 0:1:1 - BAR4 0x000000000000c040 - 0x000000000000c050
+PCI: 0:2:0 - BAR0 0x00000000fd000000 - 0x00000000fe000000
+PCI: 0:2:0 - BAR2 0x00000000febd0000 - 0x00000000febd1000
+PCI: 0:3:0 - BAR0 0x000000000000c000 - 0x000000000000c040
+PCI: 0:3:0 - BAR1 0x00000000febd1000 - 0x00000000febd2000
+0:3:0
+MSIX - 6 entries at BAR1:0
+Allocated fffffffefefff000 - fffffffefeffffff
+Device features: 79ffffe7
+VRING: 3d5c8000
+Negotiated 2 queue pairs
+VRING: 3d5cc000
+VRING: 3d5d0000
+VRING: 3d414000
+VRING: 3d418000
+Mac Address: 02:00:00:04:00:80
+Dhcp Complete: 10.1.22.143
+Allocated fffffffefe7ff000 - fffffffefeffefff
+Allocating Global EbbIds from 20000 - 2ffff
+a011601:45427
+System initialization complete
+Allocated fffffffefdfff000 - fffffffefe7fefff
+******************ReceiveMessage: Mon Mar 21 20:35:16 2016
+ ***********
+Received msg length: 14576 bytes
+Number chain elements: 4453
+Computed chain length: 64996297 bytes
+get buffer compute chain data length time: 0.069021 seconds
+deserialize time: 3.237035 seconds
+compute time: 69.425726 seconds
+ts length: 969690
+Sending 969691 bytes
+UNIMPLEMENTED: Free Large memory region
+Node Allocator destructor! 
+executing /opt/khpy/kh rmnet 22
+Network 22 removed
+starting reconstruction on 2016-03-21
+PREV tbb_no_threads = -1
+NEW tbb_no_threads = 16
+Reconstructed volume name ... 3TStackReconstruction.nii.gz
+Number of stacks ... 4
+Reading stack ... data/masked_stack-1.nii.gz
+Reading stack ... data/masked_stack-2.nii.gz
+Reading stack ... data/masked_stack-3.nii.gz
+Reading stack ... data/masked_stack-4.nii.gz
+Slice thickness is 2.52778 2.53125 2.53165 2.53165 .
+Constructing volume with isotropic voxel size 2
+StackRegistrations start
+
+reconstruction.CreateAverage
+
+Number of slices: 248
+Masking slices ... done.
+_sigma_bias = 12
+_global_bias_correction = false 
+*************** packages.size() 0
+######## WAITING FOR BM ############
+NodeAllocator::Init() DefaultCpus=2 DefaultNumaNodes=2 DefaultRam=2
+Node Allocator bound to 10.1.23.1:45045
+EbbId: 65536
+Fdt written to /tmp/f504-4c0f-2621-97ae
+executing /opt/khpy/kh alloc --ram 8 --cpu 2 --numa 2 -g 23 /tmp/ebbrt-contrib/fetalReconstruction/source/bin/./../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32 /tmp/f504-4c0f-2621-97ae
+128
+gdb: 4018
+02:00:00:04:00:80
+tap: kh_128
+/opt/khdb/Networks/23/128/stdout
+/opt/khdb/Networks/23/128/stderr
+/opt/khdb/Networks/23/128/finish
+/opt/khdb/Networks/23/128/cmd
+
+128
+dir: /opt/khdb/Networks/23
+10.1.23.143
+all nodes initialized
+_slices.size() 248
+_transformations.size() 248
+Before serialize
+start = 0 end = 248
+Sending to .. 10.1.23.143 size: 64996296
+EbbRTReconstruction length of sent iobuf: 64996297 bytes
+Saving context 
+Received ip: 10.1.23.143
+Parsing it back, received: 969691 bytes
+Received back 
+EbbRTReconstruction done 
+checksum _reconstructed = 44669540.000000
+total time: 102.232789 seconds
+OUTPUT FROM NODES: 
+EbbRT Copyright 2013-2015 Boston University SESA Developers
+e820::map:
+000000000000000000-0x000000000009fbff usable
+0x000000000009fc00-0x000000000009ffff reserved
+0x00000000000f0000-0x00000000000fffff reserved
+0x0000000000100000-0x00000000bffdffff usable
+0x00000000bffe0000-0x00000000bfffffff reserved
+0x00000000feffc000-0x00000000feffffff reserved
+0x00000000fffc0000-0x00000000ffffffff reserved
+0x0000000100000000-0x000000023fffffff usable
+Early Page Allocator Reserve 0x0000000000009500-0x000000000000955f
+Early Page Allocator Reserve 0x000000000092b029-0x000000000092b089
+Early Page Allocator Reserve 0x000000000092b000-0x000000000092b00f
+Early Page Allocator Reserve 0x000000000092c000-0x000000000092c0be
+Early Page Allocator Reserve 0x000000000092b010-0x000000000092b028
+Fdt located
+Early Page Allocator Free 0x000000000092d000-0x000000003fffffff
+Early Page Allocator Free 0x0000000040000000-0x00000000bffdffff
+Early Page Allocator Free 0x0000000100000000-0x000000023fffffff
+ACPI: RSDP 0xf6250 000014 (v00 BOCHS )
+ACPI: RSDT 0xbffe17ed 000038 (v01 BOCHS  BXPCRSDT 00000001 BXPC 00000001)
+ACPI: FACP 0xbffe0bda 000074 (v01 BOCHS  BXPCFACP 00000001 BXPC 00000001)
+ACPI: DSDT 0xbffe0040 000B9A (v01 BOCHS  BXPCDSDT 00000001 BXPC 00000001)
+ACPI: FACS 0xbffe0000 000040
+ACPI: SSDT 0xbffe0c4e 0009F7 (v01 BOCHS  BXPCSSDT 00000001 BXPC 00000001)
+ACPI: APIC 0xbffe1645 000080 (v01 BOCHS  BXPCAPIC 00000001 BXPC 00000001)
+ACPI: HPET 0xbffe16c5 000038 (v01 BOCHS  BXPCHPET 00000001 BXPC 00000001)
+ACPI: SRAT 0xbffe16fd 0000F0 (v01 BOCHS  BXPCSRAT 00000001 BXPC 00000001)
+Local APIC: ACPI ID: 0 APIC ID: 0
+Local APIC: ACPI ID: 1 APIC ID: 1
+IO APIC: ID: 0
+Interrupt Override: 0 -> 2
+Interrupt Override: 5 -> 5
+Interrupt Override: 9 -> 9
+Interrupt Override: 10 -> 10
+Interrupt Override: 11 -> 11
+NMI on all processors: LINT1
+SRAT CPU affinity: 0 -> 0
+SRAT CPU affinity: 1 -> 1
+SRAT Memory affinity: 000000000000000000-0x000000000009ffff -> 0
+SRAT Memory affinity: 0x0000000000100000-0x00000000bfffffff -> 0
+SRAT Memory affinity: 0x0000000100000000-0x000000013fffffff -> 0
+SRAT Memory affinity: 0x0000000140000000-0x000000023fffffff -> 1
+Early Page Allocator NUMA mapping 0x000000000092d000-0x000000003fff3fff -> 0
+Early Page Allocator NUMA mapping 0x0000000040000000-0x00000000bffdffff -> 0
+Early Page Allocator NUMA mapping 0x0000000100000000-0x000000013fffffff -> 0
+Early Page Allocator NUMA mapping 0x0000000140000000-0x000000023fffffff -> 1
+Allocated fffffffeff800000 - fffffffeffffffff
+3d5c0000
+Core 1 online
+Allocated fffffffeff000000 - fffffffeff7fffff
+PCI: 0:1:1 - BAR4 0x000000000000c040 - 0x000000000000c050
+PCI: 0:2:0 - BAR0 0x00000000fd000000 - 0x00000000fe000000
+PCI: 0:2:0 - BAR2 0x00000000febd0000 - 0x00000000febd1000
+PCI: 0:3:0 - BAR0 0x000000000000c000 - 0x000000000000c040
+PCI: 0:3:0 - BAR1 0x00000000febd1000 - 0x00000000febd2000
+0:3:0
+MSIX - 6 entries at BAR1:0
+Allocated fffffffefefff000 - fffffffefeffffff
+Device features: 79ffffe7
+VRING: 3d5c8000
+Negotiated 2 queue pairs
+VRING: 3d5cc000
+VRING: 3d5d0000
+VRING: 3d414000
+VRING: 3d418000
+Mac Address: 02:00:00:04:00:80
+Dhcp Complete: 10.1.23.143
+Allocated fffffffefe7ff000 - fffffffefeffefff
+Allocating Global EbbIds from 20000 - 2ffff
+a011701:54685
+System initialization complete
+Allocated fffffffefdfff000 - fffffffefe7fefff
+Allocated fffffffefd7ff000 - fffffffefdffefff
+******************ReceiveMessage: Mon Mar 21 20:36:56 2016
+ ***********
+Received msg length: 14576 bytes
+Number chain elements: 4453
+Computed chain length: 64996297 bytes
+get buffer compute chain data length time: 0.060458 seconds
+deserialize time: 3.157173 seconds
+compute time: 72.683334 seconds
+ts length: 969690
+Sending 969691 bytes
+UNIMPLEMENTED: Free Large memory region
+Node Allocator destructor! 
+executing /opt/khpy/kh rmnet 23
+Network 23 removed
+starting reconstruction on 2016-03-21
+PREV tbb_no_threads = -1
+NEW tbb_no_threads = 16
+Reconstructed volume name ... 3TStackReconstruction.nii.gz
+Number of stacks ... 4
+Reading stack ... data/masked_stack-1.nii.gz
+Reading stack ... data/masked_stack-2.nii.gz
+Reading stack ... data/masked_stack-3.nii.gz
+Reading stack ... data/masked_stack-4.nii.gz
+Slice thickness is 2.52778 2.53125 2.53165 2.53165 .
+Constructing volume with isotropic voxel size 2
+StackRegistrations start
+
+reconstruction.CreateAverage
+
+Number of slices: 248
+Masking slices ... done.
+_sigma_bias = 12
+_global_bias_correction = false 
+*************** packages.size() 0
+######## WAITING FOR BM ############
+NodeAllocator::Init() DefaultCpus=2 DefaultNumaNodes=2 DefaultRam=2
+Node Allocator bound to 10.1.24.1:40559
+EbbId: 65536
+Fdt written to /tmp/9ef0-1cdc-cee5-0903
+executing /opt/khpy/kh alloc --ram 8 --cpu 2 --numa 2 -g 24 /tmp/ebbrt-contrib/fetalReconstruction/source/bin/./../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32 /tmp/9ef0-1cdc-cee5-0903
+128
+gdb: 4018
+02:00:00:04:00:80
+tap: kh_128
+/opt/khdb/Networks/24/128/stdout
+/opt/khdb/Networks/24/128/stderr
+/opt/khdb/Networks/24/128/finish
+/opt/khdb/Networks/24/128/cmd
+
+128
+dir: /opt/khdb/Networks/24
+10.1.24.143
+all nodes initialized
+_slices.size() 248
+_transformations.size() 248
+Before serialize
+start = 0 end = 248
+Sending to .. 10.1.24.143 size: 64996296
+EbbRTReconstruction length of sent iobuf: 64996297 bytes
+Saving context 
+Received ip: 10.1.24.143
+Parsing it back, received: 969691 bytes
+Received back 
+EbbRTReconstruction done 
+checksum _reconstructed = 44669540.000000
+total time: 101.166109 seconds
+OUTPUT FROM NODES: 
+EbbRT Copyright 2013-2015 Boston University SESA Developers
+e820::map:
+000000000000000000-0x000000000009fbff usable
+0x000000000009fc00-0x000000000009ffff reserved
+0x00000000000f0000-0x00000000000fffff reserved
+0x0000000000100000-0x00000000bffdffff usable
+0x00000000bffe0000-0x00000000bfffffff reserved
+0x00000000feffc000-0x00000000feffffff reserved
+0x00000000fffc0000-0x00000000ffffffff reserved
+0x0000000100000000-0x000000023fffffff usable
+Early Page Allocator Reserve 0x0000000000009500-0x000000000000955f
+Early Page Allocator Reserve 0x000000000092b029-0x000000000092b089
+Early Page Allocator Reserve 0x000000000092b000-0x000000000092b00f
+Early Page Allocator Reserve 0x000000000092c000-0x000000000092c0be
+Early Page Allocator Reserve 0x000000000092b010-0x000000000092b028
+Fdt located
+Early Page Allocator Free 0x000000000092d000-0x000000003fffffff
+Early Page Allocator Free 0x0000000040000000-0x00000000bffdffff
+Early Page Allocator Free 0x0000000100000000-0x000000023fffffff
+ACPI: RSDP 0xf6250 000014 (v00 BOCHS )
+ACPI: RSDT 0xbffe17ed 000038 (v01 BOCHS  BXPCRSDT 00000001 BXPC 00000001)
+ACPI: FACP 0xbffe0bda 000074 (v01 BOCHS  BXPCFACP 00000001 BXPC 00000001)
+ACPI: DSDT 0xbffe0040 000B9A (v01 BOCHS  BXPCDSDT 00000001 BXPC 00000001)
+ACPI: FACS 0xbffe0000 000040
+ACPI: SSDT 0xbffe0c4e 0009F7 (v01 BOCHS  BXPCSSDT 00000001 BXPC 00000001)
+ACPI: APIC 0xbffe1645 000080 (v01 BOCHS  BXPCAPIC 00000001 BXPC 00000001)
+ACPI: HPET 0xbffe16c5 000038 (v01 BOCHS  BXPCHPET 00000001 BXPC 00000001)
+ACPI: SRAT 0xbffe16fd 0000F0 (v01 BOCHS  BXPCSRAT 00000001 BXPC 00000001)
+Local APIC: ACPI ID: 0 APIC ID: 0
+Local APIC: ACPI ID: 1 APIC ID: 1
+IO APIC: ID: 0
+Interrupt Override: 0 -> 2
+Interrupt Override: 5 -> 5
+Interrupt Override: 9 -> 9
+Interrupt Override: 10 -> 10
+Interrupt Override: 11 -> 11
+NMI on all processors: LINT1
+SRAT CPU affinity: 0 -> 0
+SRAT CPU affinity: 1 -> 1
+SRAT Memory affinity: 000000000000000000-0x000000000009ffff -> 0
+SRAT Memory affinity: 0x0000000000100000-0x00000000bfffffff -> 0
+SRAT Memory affinity: 0x0000000100000000-0x000000013fffffff -> 0
+SRAT Memory affinity: 0x0000000140000000-0x000000023fffffff -> 1
+Early Page Allocator NUMA mapping 0x000000000092d000-0x000000003fff3fff -> 0
+Early Page Allocator NUMA mapping 0x0000000040000000-0x00000000bffdffff -> 0
+Early Page Allocator NUMA mapping 0x0000000100000000-0x000000013fffffff -> 0
+Early Page Allocator NUMA mapping 0x0000000140000000-0x000000023fffffff -> 1
+Allocated fffffffeff800000 - fffffffeffffffff
+3d5c0000
+Core 1 online
+Allocated fffffffeff000000 - fffffffeff7fffff
+PCI: 0:1:1 - BAR4 0x000000000000c040 - 0x000000000000c050
+PCI: 0:2:0 - BAR0 0x00000000fd000000 - 0x00000000fe000000
+PCI: 0:2:0 - BAR2 0x00000000febd0000 - 0x00000000febd1000
+PCI: 0:3:0 - BAR0 0x000000000000c000 - 0x000000000000c040
+PCI: 0:3:0 - BAR1 0x00000000febd1000 - 0x00000000febd2000
+0:3:0
+MSIX - 6 entries at BAR1:0
+Allocated fffffffefefff000 - fffffffefeffffff
+Device features: 79ffffe7
+VRING: 3d5c8000
+Negotiated 2 queue pairs
+VRING: 3d5cc000
+VRING: 3d5d0000
+VRING: 3d414000
+VRING: 3d418000
+Mac Address: 02:00:00:04:00:80
+Dhcp Complete: 10.1.24.143
+Allocated fffffffefe7ff000 - fffffffefeffefff
+Allocating Global EbbIds from 20000 - 2ffff
+a011801:45631
+System initialization complete
+Allocated fffffffefa000000 - fffffffefa7fffff
+Allocated fffffffef9800000 - fffffffef9ffffff
+******************ReceiveMessage: Mon Mar 21 20:38:39 2016
+ ***********
+Received msg length: 64996297 bytes
+Number chain elements: 1
+Computed chain length: 64996297 bytes
+get buffer compute chain data length time: 0.000014 seconds
+deserialize time: 3.149297 seconds
+compute time: 72.030415 seconds
+ts length: 969690
+Sending 969691 bytes
+UNIMPLEMENTED: Free Large memory region
+UNIMPLEMENTED: Free Large memory region
+Node Allocator destructor! 
+executing /opt/khpy/kh rmnet 24
+Network 24 removed
+starting reconstruction on 2016-03-21
+PREV tbb_no_threads = -1
+NEW tbb_no_threads = 16
+Reconstructed volume name ... 3TStackReconstruction.nii.gz
+Number of stacks ... 4
+Reading stack ... data/masked_stack-1.nii.gz
+Reading stack ... data/masked_stack-2.nii.gz
+Reading stack ... data/masked_stack-3.nii.gz
+Reading stack ... data/masked_stack-4.nii.gz
+Slice thickness is 2.52778 2.53125 2.53165 2.53165 .
+Constructing volume with isotropic voxel size 2
+StackRegistrations start
+
+reconstruction.CreateAverage
+
+Number of slices: 248
+Masking slices ... done.
+_sigma_bias = 12
+_global_bias_correction = false 
+*************** packages.size() 0
+######## WAITING FOR BM ############
+NodeAllocator::Init() DefaultCpus=2 DefaultNumaNodes=2 DefaultRam=2
+Node Allocator bound to 10.1.25.1:41372
+EbbId: 65536
+Fdt written to /tmp/e14d-e31b-cf65-6f46
+executing /opt/khpy/kh alloc --ram 8 --cpu 2 --numa 2 -g 25 /tmp/ebbrt-contrib/fetalReconstruction/source/bin/./../../ext/irtk-serialize/hosted/build/Release/bm/AppMain.elf32 /tmp/e14d-e31b-cf65-6f46
+128
+gdb: 4018
+02:00:00:04:00:80
+tap: kh_128
+/opt/khdb/Networks/25/128/stdout
+/opt/khdb/Networks/25/128/stderr
+/opt/khdb/Networks/25/128/finish
+/opt/khdb/Networks/25/128/cmd
+
+128
+dir: /opt/khdb/Networks/25
+10.1.25.143
+all nodes initialized
+_slices.size() 248
+_transformations.size() 248
+Before serialize
+start = 0 end = 248
+Sending to .. 10.1.25.143 size: 64996296
+EbbRTReconstruction length of sent iobuf: 64996297 bytes
+Saving context 
+Received ip: 10.1.25.143
+Parsing it back, received: 969691 bytes
+Received back 
+EbbRTReconstruction done 
+checksum _reconstructed = 44669540.000000
+total time: 100.679384 seconds
+OUTPUT FROM NODES: 
+EbbRT Copyright 2013-2015 Boston University SESA Developers
+e820::map:
+000000000000000000-0x000000000009fbff usable
+0x000000000009fc00-0x000000000009ffff reserved
+0x00000000000f0000-0x00000000000fffff reserved
+0x0000000000100000-0x00000000bffdffff usable
+0x00000000bffe0000-0x00000000bfffffff reserved
+0x00000000feffc000-0x00000000feffffff reserved
+0x00000000fffc0000-0x00000000ffffffff reserved
+0x0000000100000000-0x000000023fffffff usable
+Early Page Allocator Reserve 0x0000000000009500-0x000000000000955f
+Early Page Allocator Reserve 0x000000000092b029-0x000000000092b089
+Early Page Allocator Reserve 0x000000000092b000-0x000000000092b00f
+Early Page Allocator Reserve 0x000000000092c000-0x000000000092c0be
+Early Page Allocator Reserve 0x000000000092b010-0x000000000092b028
+Fdt located
+Early Page Allocator Free 0x000000000092d000-0x000000003fffffff
+Early Page Allocator Free 0x0000000040000000-0x00000000bffdffff
+Early Page Allocator Free 0x0000000100000000-0x000000023fffffff
+ACPI: RSDP 0xf6250 000014 (v00 BOCHS )
+ACPI: RSDT 0xbffe17ed 000038 (v01 BOCHS  BXPCRSDT 00000001 BXPC 00000001)
+ACPI: FACP 0xbffe0bda 000074 (v01 BOCHS  BXPCFACP 00000001 BXPC 00000001)
+ACPI: DSDT 0xbffe0040 000B9A (v01 BOCHS  BXPCDSDT 00000001 BXPC 00000001)
+ACPI: FACS 0xbffe0000 000040
+ACPI: SSDT 0xbffe0c4e 0009F7 (v01 BOCHS  BXPCSSDT 00000001 BXPC 00000001)
+ACPI: APIC 0xbffe1645 000080 (v01 BOCHS  BXPCAPIC 00000001 BXPC 00000001)
+ACPI: HPET 0xbffe16c5 000038 (v01 BOCHS  BXPCHPET 00000001 BXPC 00000001)
+ACPI: SRAT 0xbffe16fd 0000F0 (v01 BOCHS  BXPCSRAT 00000001 BXPC 00000001)
+Local APIC: ACPI ID: 0 APIC ID: 0
+Local APIC: ACPI ID: 1 APIC ID: 1
+IO APIC: ID: 0
+Interrupt Override: 0 -> 2
+Interrupt Override: 5 -> 5
+Interrupt Override: 9 -> 9
+Interrupt Override: 10 -> 10
+Interrupt Override: 11 -> 11
+NMI on all processors: LINT1
+SRAT CPU affinity: 0 -> 0
+SRAT CPU affinity: 1 -> 1
+SRAT Memory affinity: 000000000000000000-0x000000000009ffff -> 0
+SRAT Memory affinity: 0x0000000000100000-0x00000000bfffffff -> 0
+SRAT Memory affinity: 0x0000000100000000-0x000000013fffffff -> 0
+SRAT Memory affinity: 0x0000000140000000-0x000000023fffffff -> 1
+Early Page Allocator NUMA mapping 0x000000000092d000-0x000000003fff3fff -> 0
+Early Page Allocator NUMA mapping 0x0000000040000000-0x00000000bffdffff -> 0
+Early Page Allocator NUMA mapping 0x0000000100000000-0x000000013fffffff -> 0
+Early Page Allocator NUMA mapping 0x0000000140000000-0x000000023fffffff -> 1
+Allocated fffffffeff800000 - fffffffeffffffff
+3d5c0000
+Core 1 online
+Allocated fffffffeff000000 - fffffffeff7fffff
+PCI: 0:1:1 - BAR4 0x000000000000c040 - 0x000000000000c050
+PCI: 0:2:0 - BAR0 0x00000000fd000000 - 0x00000000fe000000
+PCI: 0:2:0 - BAR2 0x00000000febd0000 - 0x00000000febd1000
+PCI: 0:3:0 - BAR0 0x000000000000c000 - 0x000000000000c040
+PCI: 0:3:0 - BAR1 0x00000000febd1000 - 0x00000000febd2000
+0:3:0
+MSIX - 6 entries at BAR1:0
+Allocated fffffffefefff000 - fffffffefeffffff
+Device features: 79ffffe7
+VRING: 3d5c8000
+Negotiated 2 queue pairs
+VRING: 3d5cc000
+VRING: 3d5d0000
+VRING: 3d414000
+VRING: 3d418000
+Mac Address: 02:00:00:04:00:80
+Dhcp Complete: 10.1.25.143
+Allocated fffffffefe7ff000 - fffffffefeffefff
+Allocating Global EbbIds from 20000 - 2ffff
+a011901:48275
+System initialization complete
+Allocated fffffffefa000000 - fffffffefa7fffff
+******************ReceiveMessage: Mon Mar 21 20:40:22 2016
+ ***********
+Received msg length: 64996297 bytes
+Number chain elements: 1
+Computed chain length: 64996297 bytes
+get buffer compute chain data length time: 0.000022 seconds
+deserialize time: 3.310828 seconds
+compute time: 71.244536 seconds
+ts length: 969690
+Sending 969691 bytes
+UNIMPLEMENTED: Free Large memory region
+UNIMPLEMENTED: Free Large memory region
+Node Allocator destructor! 
+executing /opt/khpy/kh rmnet 25
+Network 25 removed
