@@ -2757,12 +2757,225 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     _low_intensity_cutoff = 0.01;
     _adaptive = false;
 
-    /************************* START RUN ***********************************/
-    struct timeval tstart, tend;
-    gettimeofday(&tstart, NULL);
     InitializeEM();
 
+    /************************* START RUN ***********************************/
+    struct timeval tstart, tend;
+    struct timeval lstart, lend;
+    float sumCompute = 0.0;
+    float tempTime = 0.0;
+        
     iterations = ITER;
+    gettimeofday(&tstart, NULL);
+    for (int iter = 0; iter < iterations; iter++) {
+	// perform slice-to-volume registrations - skip the first iteration
+	if (iter > 0) {
+	    gettimeofday(&lstart, NULL);
+	    SliceToVolumeRegistration(start, end);
+	    gettimeofday(&lend, NULL);
+	    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	    ebbrt::kprintf("SliceToVolumeRegistration: %lf seconds\n", tempTime);
+	    sumCompute += tempTime;
+	}
+
+	if (iter == (iterations - 1)) {
+	    SetSmoothingParameters(delta, lastIterLambda);
+	} else {
+	    double l = lambda;
+	    for (i = 0; i < levels; i++) {
+		if (iter == iterations * (levels - i - 1) / levels) {
+		    SetSmoothingParameters(delta, l);
+		}
+		l *= 2;
+	    }
+	}
+
+	// Use faster reconstruction during iterations and slower for final
+	// reconstruction
+	if (iter < (iterations - 1)) {
+	    _quality_factor = 1;
+	} else {
+	    _quality_factor = 2;
+	}
+
+	// Initialise values of weights, scales and bias fields
+	gettimeofday(&lstart, NULL);
+	InitializeEMValues();
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	ebbrt::kprintf("InitializeEMValues: %lf seconds\n", tempTime);
+	sumCompute += tempTime;
+
+	// Calculate matrix of transformation between voxels of slices and volume
+	gettimeofday(&lstart, NULL);
+	CoeffInit(start, end);
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	ebbrt::kprintf("CoeffInit: %lf seconds\n", tempTime);
+	sumCompute += tempTime;
+
+	// Initialize reconstructed image with Gaussian weighted reconstruction
+	gettimeofday(&lstart, NULL);
+	GaussianReconstruction(start, end);
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	ebbrt::kprintf("GaussianReconstruction: %lf seconds\n", tempTime);
+	sumCompute += tempTime; 
+
+	// Simulate slices (needs to be done after Gaussian reconstruction)
+	gettimeofday(&lstart, NULL);
+	SimulateSlices(start, end);
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	ebbrt::kprintf("SimulateSlices: %lf seconds\n", tempTime);
+	sumCompute += tempTime;
+
+	gettimeofday(&lstart, NULL);
+	InitializeRobustStatistics(start, end);
+	gettimeofday(&lend, NULL);    
+	tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	ebbrt::kprintf("InitializeRobustStatistics: %lf seconds\n", tempTime);
+	sumCompute += tempTime;
+    
+	gettimeofday(&lstart, NULL);
+	EStep(start, end);
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	ebbrt::kprintf("EStep: %lf seconds\n", tempTime);
+	sumCompute += tempTime;
+
+	// number of reconstruction iterations
+	if (iter == (iterations - 1)) {
+	    rec_iterations = rec_iterations_last;
+	} else
+	    rec_iterations = rec_iterations_first;
+
+	// reconstruction iterations
+	i = 0;
+	for (i = 0; i < rec_iterations; i++) {
+	    if (intensity_matching) {
+		// calculate bias fields
+		if (useCPU) {
+		    if (!disableBiasCorr) {
+			if (sigma > 0) {
+			    gettimeofday(&lstart, NULL);
+			    Bias(start, end);
+			    gettimeofday(&lend, NULL);
+			    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+			    ebbrt::kprintf("Bias: %lf seconds\n", tempTime);
+			    sumCompute += tempTime;
+			}
+		    }
+		    gettimeofday(&lstart, NULL);
+		    // calculate scales
+		    Scale(start, end);
+		    gettimeofday(&lend, NULL);
+		    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+		    ebbrt::kprintf("Scale: %lf seconds\n", tempTime);
+		    sumCompute += tempTime;
+		}
+	    }
+
+	    // MStep and update reconstructed volume
+	    gettimeofday(&lstart, NULL);
+	    Superresolution(i + 1, start, end);
+	    gettimeofday(&lend, NULL);
+	    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	    ebbrt::kprintf("Superresolution: %lf seconds\n", tempTime);
+	    sumCompute += tempTime;
+
+	    if (intensity_matching) {
+		if (!disableBiasCorr) {
+		    if ((sigma > 0) && (!global_bias_correction)) {
+			gettimeofday(&lstart, NULL);
+			NormaliseBias(i, start, end);
+			gettimeofday(&lend, NULL);
+			tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+			ebbrt::kprintf("NormaliseBias: %lf seconds\n", tempTime);
+			sumCompute += tempTime;
+		    }
+		}
+	    }
+
+	    // Simulate slices (needs to be done
+	    // after the update of the reconstructed volume)
+	    gettimeofday(&lstart, NULL);
+	    SimulateSlices(start, end);
+	    gettimeofday(&lend, NULL);
+	    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	    ebbrt::kprintf("SimulateSlices: %lf seconds\n", tempTime);
+	    sumCompute += tempTime;
+
+	    gettimeofday(&lstart, NULL);
+	    MStep(i + 1, start, end);
+	    gettimeofday(&lend, NULL);
+	    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	    ebbrt::kprintf("MStep: %lf seconds\n", tempTime);
+	    sumCompute += tempTime;
+
+	    gettimeofday(&lstart, NULL);
+	    EStep(start, end);
+	    gettimeofday(&lend, NULL);
+	    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	    ebbrt::kprintf("EStep: %lf seconds\n", tempTime);
+	    sumCompute += tempTime;
+
+	} // end of reconstruction iterations
+
+	// Mask reconstructed image to ROI given by the mask
+	gettimeofday(&lstart, NULL);
+	MaskVolume();
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	ebbrt::kprintf("MaskVolume: %lf seconds\n", tempTime);
+	sumCompute += tempTime;
+    
+	gettimeofday(&lstart, NULL);
+	Evaluate(iter);
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	ebbrt::kprintf("Evaluate: %lf seconds\n", tempTime);
+	sumCompute += tempTime;
+    } // end of interleaved registration-reconstruction iterations
+
+    gettimeofday(&lstart, NULL);
+    RestoreSliceIntensities();
+    ScaleVolume();
+    gettimeofday(&lend, NULL);
+    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    ebbrt::kprintf("RestoreSliceIntensities and ScaleVolume: %lf seconds\n", tempTime);
+    sumCompute += tempTime;
+  
+    gettimeofday(&tend, NULL);
+    ebbrt::kprintf("EbbRT compute time: %lf seconds\n",
+                   (tend.tv_sec - tstart.tv_sec) +
+		   ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
+    ebbrt::kprintf("EbbRT sum compute time: %lf seconds\n", sumCompute);
+
+    std::ostringstream ofs;
+    boost::archive::text_oarchive oa(ofs);
+    oa &_reconstructed;
+
+    std::string ts = "E " + ofs.str();
+    ;
+    ebbrt::kprintf("ts length: %d\n", ts.length());
+
+    Print(ts.c_str());
+  }
+
+  gettimeofday(&aend, NULL);
+  ebbrt::kprintf("EbbRT receiveMessage time: %lf seconds\n",
+		 (aend.tv_sec - astart.tv_sec) +
+		 ((aend.tv_usec - astart.tv_usec) / 1000000.0));
+
+}
+
+  /*gettimeofday(&tend, NULL);
+  ebbrt::kprintf("compute time: %lf seconds\n",
+              (tend.tv_sec - tstart.tv_sec) +
+                  ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
+  ebbrt::kprintf("sum compute time: %lf seconds\n", sumCompute);
+  
     for (int iter = 0; iter < iterations; iter++) {
       // perform slice-to-volume registrations - skip the first iteration
       if (iter > 0) {
@@ -2848,26 +3061,4 @@ EbbRTReconstruction::ReceiveMessage(ebbrt::Messenger::NetworkId nid,
     // reconstruction.SyncCPU();
     RestoreSliceIntensities();
     ScaleVolume();
-
-    gettimeofday(&tend, NULL);
-    ebbrt::kprintf("EbbRT compute time: %lf seconds\n",
-                   (tend.tv_sec - tstart.tv_sec) +
-                       ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
-
-    std::ostringstream ofs;
-    boost::archive::text_oarchive oa(ofs);
-    oa &_reconstructed;
-
-    std::string ts = "E " + ofs.str();
-    ;
-    ebbrt::kprintf("ts length: %d\n", ts.length());
-
-    Print(ts.c_str());
-  }
-
-  gettimeofday(&aend, NULL);
-  ebbrt::kprintf("EbbRT receiveMessage time: %lf seconds\n",
-		 (aend.tv_sec - astart.tv_sec) +
-		 ((aend.tv_usec - astart.tv_usec) / 1000000.0));
-
-}
+  */

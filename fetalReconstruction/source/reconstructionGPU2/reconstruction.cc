@@ -1,4 +1,4 @@
-//#define EBB
+#define EBB
 #define NCPUS 2
 /*=========================================================================
 Library   : Image Registration Toolkit (IRTK)
@@ -844,29 +844,31 @@ int main(int argc, char **argv) {
   // disableBiasCorr, sigma, global_bias_correction, lastIterLambda,
   // iterations);
   struct timeval tstart, tend;
+  float sumCompute = 0.0;
+  float tempTime = 0.0;
   gettimeofday(&tstart, NULL);
 
+  struct timeval lstart, lend;
+  
   iterations = 1;
   for (int iter = 0; iter < iterations; iter++) {
-
     // perform slice-to-volume registrations - skip the first iteration
     if (iter > 0) {
-      reconstruction.SliceToVolumeRegistration();
-      // std::cout << "reconstruction.SliceToVolumeRegistration();" <<
-      // std::endl;
+	gettimeofday(&lstart, NULL);
+	reconstruction.SliceToVolumeRegistration();
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	std::printf("SliceToVolumeRegistration: %lf seconds\n", tempTime);
+	sumCompute += tempTime;
     }
 
     if (iter == (iterations - 1)) {
       reconstruction.SetSmoothingParameters(delta, lastIterLambda);
-      // std::cout << "reconstruction.SetSmoothingParameters(delta,
-      // lastIterLambda);" << std::endl;
     } else {
       double l = lambda;
       for (i = 0; i < levels; i++) {
         if (iter == iterations * (levels - i - 1) / levels) {
           reconstruction.SetSmoothingParameters(delta, l);
-          // std::cout << "reconstruction.SetSmoothingParameters(delta, l);" <<
-          // std::endl;
         }
         l *= 2;
       }
@@ -881,26 +883,50 @@ int main(int argc, char **argv) {
     }
 
     // Initialise values of weights, scales and bias fields
+    gettimeofday(&lstart, NULL);
     reconstruction.InitializeEMValues();
-    // std::cout << "reconstruction.InitializeEMValues();" << std::endl;
+    gettimeofday(&lend, NULL);
+    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    std::printf("InitializeEMValues: %lf seconds\n", tempTime);
+    sumCompute += tempTime;
 
     // Calculate matrix of transformation between voxels of slices and volume
-    reconstruction.CoeffInit(argv);
-    // std::cout << "reconstruction.CoeffInit(argv);" << std::endl;
+    gettimeofday(&lstart, NULL);
+    reconstruction.CoeffInit();
+    gettimeofday(&lend, NULL);
+    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    std::printf("CoeffInit: %lf seconds\n", tempTime);
+    sumCompute += tempTime;
 
     // Initialize reconstructed image with Gaussian weighted reconstruction
+    gettimeofday(&lstart, NULL);
     reconstruction.GaussianReconstruction();
-    // std::cout << "reconstruction.GaussianReconstruction();" << std::endl;
+    gettimeofday(&lend, NULL);
+    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    std::printf("GaussianReconstruction: %lf seconds\n", tempTime);
+    sumCompute += tempTime; 
 
     // Simulate slices (needs to be done after Gaussian reconstruction)
+    gettimeofday(&lstart, NULL);
     reconstruction.SimulateSlices();
-    // std::cout << "reconstruction.SimulateSlices();" << std::endl;
+    gettimeofday(&lend, NULL);
+    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    std::printf("SimulateSlices: %lf seconds\n", tempTime);
+    sumCompute += tempTime;
 
+    gettimeofday(&lstart, NULL);
     reconstruction.InitializeRobustStatistics();
-    // std::cout << "reconstruction.InitializeRobustStatistics();" << std::endl;
-
+    gettimeofday(&lend, NULL);    
+    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    std::printf("InitializeRobustStatistics: %lf seconds\n", tempTime);
+    sumCompute += tempTime;
+    
+    gettimeofday(&lstart, NULL);
     reconstruction.EStep();
-    // std::cout << "reconstruction.EStep();" << std::endl;
+    gettimeofday(&lend, NULL);
+    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    std::printf("EStep: %lf seconds\n", tempTime);
+    sumCompute += tempTime;
 
     // number of reconstruction iterations
     if (iter == (iterations - 1)) {
@@ -916,80 +942,102 @@ int main(int argc, char **argv) {
         if (useCPU) {
           if (!disableBiasCorr) {
             if (sigma > 0) {
-              reconstruction.Bias();
-              // std::cout << "reconstruction.Bias();" << std::endl;
+		gettimeofday(&lstart, NULL);
+		reconstruction.Bias();
+		gettimeofday(&lend, NULL);
+		tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+		std::printf("Bias: %lf seconds\n", tempTime);
+		sumCompute += tempTime;
             }
           }
+	  gettimeofday(&lstart, NULL);
           // calculate scales
           reconstruction.Scale();
-          // std::cout << "reconstruction.Scale();" << std::endl;
+	  gettimeofday(&lend, NULL);
+	  tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	  std::printf("Scale: %lf seconds\n", tempTime);
+	  sumCompute += tempTime;
         }
       }
 
       // MStep and update reconstructed volume
+      gettimeofday(&lstart, NULL);
       reconstruction.Superresolution(i + 1);
-      // std::cout << "reconstruction.Superresolution(i + 1);" << std::endl;
+      gettimeofday(&lend, NULL);
+      tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+      std::printf("Superresolution: %lf seconds\n", tempTime);
+      sumCompute += tempTime;
 
       if (intensity_matching) {
         if (!disableBiasCorr) {
           if ((sigma > 0) && (!global_bias_correction)) {
-            reconstruction.NormaliseBias(i);
-            // std::cout << "reconstruction.NormaliseBias(i);" << std::endl;
+	      gettimeofday(&lstart, NULL);
+	      reconstruction.NormaliseBias(i);
+	      gettimeofday(&lend, NULL);
+	      tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	      std::printf("NormaliseBias: %lf seconds\n", tempTime);
+	      sumCompute += tempTime;
           }
         }
       }
 
       // Simulate slices (needs to be done
       // after the update of the reconstructed volume)
+      gettimeofday(&lstart, NULL);
       reconstruction.SimulateSlices();
-      // std::cout << "reconstruction.SimulateSlices();" << std::endl;
+      gettimeofday(&lend, NULL);
+      tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+      std::printf("SimulateSlices: %lf seconds\n", tempTime);
+      sumCompute += tempTime;
 
+      gettimeofday(&lstart, NULL);
       reconstruction.MStep(i + 1);
-      // std::cout << "reconstruction.MStep(i + 1);" << std::endl;
+      gettimeofday(&lend, NULL);
+      tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+      std::printf("MStep: %lf seconds\n", tempTime);
+      sumCompute += tempTime;
 
+      gettimeofday(&lstart, NULL);
       reconstruction.EStep();
-      // std::cout << "reconstruction.EStep();" << std::endl;
+      gettimeofday(&lend, NULL);
+      tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+      std::printf("EStep: %lf seconds\n", tempTime);
+      sumCompute += tempTime;
+
     } // end of reconstruction iterations
 
     // Mask reconstructed image to ROI given by the mask
+    gettimeofday(&lstart, NULL);
     reconstruction.MaskVolume();
-    // std::cout << "reconstruction.MaskVolume();" << std::endl;
-
+    gettimeofday(&lend, NULL);
+    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    std::printf("MaskVolume: %lf seconds\n", tempTime);
+    sumCompute += tempTime;
+    
+    gettimeofday(&lstart, NULL);
     reconstruction.Evaluate(iter);
-    // std::cout << "reconstruction.Evaluate(iter);" << std::endl;
+    gettimeofday(&lend, NULL);
+    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    std::printf("Evaluate: %lf seconds\n", tempTime);
+    sumCompute += tempTime;
   } // end of interleaved registration-reconstruction iterations
 
-  // reconstruction.SyncCPU();
+  gettimeofday(&lstart, NULL);
   reconstruction.RestoreSliceIntensities();
-  // std::cout << "reconstruction.RestoreSliceIntensities();" << std::endl;
   reconstruction.ScaleVolume();
-
+  gettimeofday(&lend, NULL);
+  tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+  std::printf("RestoreSliceIntensities and ScaleVolume: %lf seconds\n", tempTime);
+  sumCompute += tempTime;
+  
   gettimeofday(&tend, NULL);
   std::printf("compute time: %lf seconds\n",
               (tend.tv_sec - tstart.tv_sec) +
                   ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
-// std::cout << "reconstruction.ScaleVolume();" << std::endl;
+  std::printf("sum compute time: %lf seconds\n", sumCompute);
+  
 #endif
   /************************8 END ********************************/
-
-  /*pt::ptime now = pt::microsec_clock::local_time();
-  pt::time_duration diff = now - start;
-  double mss = diff.total_milliseconds() / 1000.0;
-
-  if (useCPU) {
-    sprintf(buffer, "performance_CPU_%s.txt", currentDateTime().c_str());
-  } else {
-    sprintf(buffer, "performance_GPU_%s.txt", currentDateTime().c_str());
-  }
-  ofstream perf_file(buffer);
-  stats.print();
-  stats.print(perf_file);
-  perf_file << "\n.........overall time: ";
-  perf_file << mss;
-  perf_file << " s........\n";
-  perf_file.close();
-  printf(".........overall time: %f s........\n", mss);
-  */
   std::printf("checksum _reconstructed = %lf\n",
               sumOneImage(reconstruction._reconstructed));
 
@@ -1002,11 +1050,5 @@ int main(int argc, char **argv) {
               (totend.tv_sec - totstart.tv_sec) +
 	      ((totend.tv_usec - totstart.tv_usec) / 1000000.0));
 
-  // write computation time to file for tuner test
-
-  /*ofstream timefile;
-  timefile.open ("time.txt", ios::out | ios::app);
-  timefile << mss << "\n";
-  timefile.close();*/
   // The end of main()
 }
