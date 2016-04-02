@@ -13,3 +13,15 @@
 [submodule "fetalReconstruction/source/bin/data"]
 	path = fetalReconstruction/source/bin/data
 	url = https://github.com/handong32/fetal-data.git
+[submodule "apps/coeffInitRecon/baremetal/ext/boost"]
+	path = apps/coeffInitRecon/baremetal/ext/boost
+	url = https://github.com/handong32/EbbRT-boost.git
+[submodule "apps/coeffInitRecon/baremetal/ext/gsl"]
+	path = apps/coeffInitRecon/baremetal/ext/gsl
+	url = https://github.com/handong32/EbbRT-gsl-libs.git
+[submodule "apps/coeffInitRecon/baremetal/build/lib"]
+	path = apps/coeffInitRecon/baremetal/build/lib
+	url = https://github.com/handong32/EbbRT-ext-libs.git
+[submodule "apps/coeffInitRecon/hosted/build/lib"]
+	path = apps/coeffInitRecon/hosted/build/lib
+	url = https://github.com/handong32/EbbRT-irtk-libs.git

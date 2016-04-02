@@ -70,6 +70,12 @@
 #include <boost/filesystem.hpp>
 using namespace boost::filesystem;
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#pragma GCC diagnostic ignored "-Wreturn-type"
+
 void bbox(irtkRealImage &stack, irtkRigidTransformation &transformation,
           double &min_x, double &min_y, double &min_z, double &max_x,
           double &max_y, double &max_z) {
@@ -5465,3 +5471,5 @@ void irtkReconstruction::Rescale(irtkRealImage &img, double max) {
       ptr[i] = double(ptr[i]) / double(max_val) * max;
 }
 /* end Utility functions */
+
+#pragma GCC diagnostic pop
