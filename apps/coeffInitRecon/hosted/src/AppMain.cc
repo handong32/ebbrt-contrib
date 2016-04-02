@@ -536,6 +536,27 @@ int main(int argc, char **argv)
 
     std::cout << "*************** packages.size() " << packages.size() << std::endl;
   
+    struct timeval tstart, tend;
+    struct timeval lstart, lend;
+    float sumCompute = 0.0;
+    float tempTime = 0.0;
+    gettimeofday(&tstart, NULL);
+
+    // Initialise values of weights, scales and bias fields
+    gettimeofday(&lstart, NULL);
+    reconstruction.InitializeEMValues();
+    gettimeofday(&lend, NULL);
+    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    std::printf("InitializeEMValues: %lf seconds\n", tempTime);
+    sumCompute += tempTime;
+
+    // Calculate matrix of transformation between voxels of slices and volume
+    gettimeofday(&lstart, NULL);
+    reconstruction.CoeffInit();
+    gettimeofday(&lend, NULL);
+    tempTime = (lend.tv_sec - lstart.tv_sec) + ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    std::printf("CoeffInit: %lf seconds\n", tempTime);
+    sumCompute += tempTime;
     return 0;
 }
 
