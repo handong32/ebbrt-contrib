@@ -54,7 +54,7 @@
 #define NOMINMAX
 #define _USE_MATH_DEFINES
 
-#include <irtkReconstructionGPU.h>
+#include "irtkReconstructionEbb.h"
 #include <irtkResampling.h>
 #include <irtkRegistration.h>
 #include <irtkImageRigidRegistration.h>
@@ -63,12 +63,25 @@
 #include <irtkTransformation.h>
 #include <math.h>
 #include <stdlib.h>
-#include <utils.h>
+#include "utils.h"
 #include <thread>
-//#include <perfstats.h>
 
-//#include <boost/filesystem.hpp>
-//using namespace boost::filesystem;
+#include <ebbrt/UniqueIOBuf.h>
+#include <ebbrt/LocalIdMap.h>
+#include <ebbrt/EbbRef.h>
+#include <ebbrt/SharedEbb.h>
+#include <ebbrt/Message.h>
+#include <ebbrt/IOBuf.h>
+#include <ebbrt/Clock.h>
+
+#include <time.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+// This is *IMPORTANT*, it allows the messenger to resolve remote HandleFaults
+EBBRT_PUBLISH_TYPE(, irtkReconstructionEbb);
+
+using namespace ebbrt;
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"
@@ -77,6 +90,457 @@
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
 int tbb_no_threads = 1;
+
+/*#ifdef __EBBRT_BM__
+int _directions[13][3] = { { 1, 0, -1 },
+                           { 0, 1, -1 },
+                           { 1, 1, -1 },
+                           { 1, -1, -1 },
+                           { 1, 0, 0 },
+                           { 0, 1, 0 },
+                           { 1, 1, 0 },
+                           { 1, -1, 0 },
+                           { 1, 0, 1 },
+                           { 0, 1, 1 },
+                           { 1, 1, 1 },
+                           { 1, -1, 1 },
+                           { 0, 0, 1 } };
+
+std::vector<irtkRealImage> _slices;
+std::vector<irtkRigidTransformation> _transformations;
+std::vector<irtkRealImage> _simulated_slices;
+std::vector<irtkRealImage> _simulated_weights;
+std::vector<irtkRealImage> _simulated_inside;
+std::vector<int> _stack_index;
+std::vector<float> _stack_factor;
+
+irtkRealImage _slice, _mask, _reconstructed;
+double _quality_factor;
+size_t _max_slices;
+bool _global_bias_correction;
+
+double _delta, _alpha, _lambda, _max_intensity, _min_intensity, _sigma_cpu,
+    _sigma_s_cpu, _mix_cpu, _mix_s_cpu, _m_cpu, _mean_s_cpu, _mean_s2_cpu,
+    _sigma_s2_cpu, _step, _sigma_bias, _low_intensity_cutoff,
+    _average_volume_weight;
+
+std::vector<irtkRealImage> _weights;
+std::vector<irtkRealImage> _bias;
+std::vector<double> _slice_weight_cpu;
+std::vector<double> _scale_cpu;
+std::vector<SLICECOEFFS> _volcoeffs;
+std::vector<bool> _slice_inside_cpu;
+irtkRealImage _volume_weights, _confidence_map;
+std::vector<int> _small_slices;
+bool _adaptive;
+std::vector<double> _slices_regCertainty;
+ebbrt::SpinLock spinlock;
+#endif
+*/
+struct membuf : std::streambuf {
+  membuf(char* begin, char* end) { this->setg(begin, begin, end); }
+};
+
+void irtkReconstructionEbb::Print(ebbrt::Messenger::NetworkId nid, const char* str) {
+  auto len = strlen(str) + 1;
+  auto buf = ebbrt::MakeUniqueIOBuf(len);
+  snprintf(reinterpret_cast<char*>(buf->MutData()), len, "%s", str);
+
+#ifndef __EBBRT_BM__
+  std::cout << "EbbRTReconstruction length of sent iobuf: "
+            << buf->ComputeChainDataLength() << " bytes" << std::endl;
+#else
+  ebbrt::kprintf("EbbRTReconstruction length of sent iobuf: %ld bytes \n", buf->ComputeChainDataLength());
+#endif
+
+  SendMessage(nid, std::move(buf));
+}
+
+void irtkReconstructionEbb::setNumNodes(int i)
+{
+    numNodes = i;
+}
+EbbRef<irtkReconstructionEbb> irtkReconstructionEbb::Create(EbbId id) 
+{ 
+    return EbbRef<irtkReconstructionEbb>(id); 
+}
+
+// This Ebb is implemented with one representative per machine
+irtkReconstructionEbb &irtkReconstructionEbb::HandleFault(EbbId id) {
+  {
+    // First we check if the representative is in the LocalIdMap (using a
+    // read-lock)
+    LocalIdMap::ConstAccessor accessor;
+    auto found = local_id_map->Find(accessor, id);
+    if (found) {
+      auto &rep = *boost::any_cast<irtkReconstructionEbb *>(accessor->second);
+      EbbRef<irtkReconstructionEbb>::CacheRef(id, rep);
+      return rep;
+    }
+  }
+
+  irtkReconstructionEbb *rep;
+  {
+    // Try to insert an entry into the LocalIdMap while holding an exclusive
+    // (write) lock
+    LocalIdMap::Accessor accessor;
+    auto created = local_id_map->Insert(accessor, id);
+    if (unlikely(!created)) {
+      // We raced with another writer, use the rep it created and return
+      rep = boost::any_cast<irtkReconstructionEbb *>(accessor->second);
+    } else {
+      // Create a new rep and insert it into the LocalIdMap
+      rep = new irtkReconstructionEbb(id);
+      accessor->second = rep;
+    }
+  }
+  // Cache the reference to the rep in the local translation table
+  EbbRef<irtkReconstructionEbb>::CacheRef(id, *rep);
+  return *rep;
+}
+
+irtkReconstructionEbb::irtkReconstructionEbb(EbbId ebbid) : Messagable<irtkReconstructionEbb>(ebbid) 
+{
+    _step = 0.0001;
+    _debug = false;
+    _quality_factor = 2;
+    _sigma_bias = 12;
+    _sigma_s_cpu = 0.025;
+    _sigma_s_gpu = 0.025;
+    _sigma_s2_cpu = 0.025;
+    _sigma_s2_gpu = 0.025;
+    _mix_s_cpu = 0.9;
+    _mix_s_gpu = 0.9;
+    _mix_cpu = 0.9;
+    _mix_gpu = 0.9;
+    _delta = 1;
+    _lambda = 0.1;
+    _alpha = (0.05 / _lambda) * _delta * _delta;
+    _template_created = false;
+    _have_mask = false;
+    _low_intensity_cutoff = 0.01;
+    _global_bias_correction = false;
+    _adaptive = false;
+    _use_SINC = false;
+
+    int directions[13][3] = { { 1, 0, -1 },
+			      { 0, 1, -1 },
+			      { 1, 1, -1 },
+			      { 1, -1, -1 },
+			      { 1, 0, 0 },
+			      { 0, 1, 0 },
+			      { 1, 1, 0 },
+			      { 1, -1, 0 },
+			      { 1, 0, 1 },
+			      { 0, 1, 1 },
+			      { 1, 1, 1 },
+			      { 1, -1, 1 },
+			      { 0, 0, 1 } };
+    for (int i = 0; i < 13; i++)
+	for (int j = 0; j < 3; j++)
+	    _directions[i][j] = directions[i][j];
+
+    _useCPUReg = true;
+    _useCPU = true;
+
+    nids.clear();
+    
+}
+
+ebbrt::Future<void> irtkReconstructionEbb::Ping(Messenger::NetworkId nid) {
+    uint32_t id;
+    Promise<void> promise;
+    auto ret = promise.GetFuture();
+    {
+	std::lock_guard<std::mutex> guard(m_);
+	id = id_; // Get a new id (always even)
+	id_ += 2;
+
+	bool inserted;
+	// insert our promise into the hash table
+	std::tie(std::ignore, inserted) =
+	    promise_map_.emplace(id, std::move(promise));
+	assert(inserted);
+    }
+    // Construct and send the ping message
+    auto buf = MakeUniqueIOBuf(sizeof(uint32_t));
+    auto dp = buf->GetMutDataPointer();
+    dp.Get<uint32_t>() = id + 1; // Ping messages are odd
+    SendMessage(nid, std::move(buf));
+    std::printf("Ping SetMessage\n");
+    return ret;
+}
+
+void irtkReconstructionEbb::runRecon()
+{
+    // get the event manager context and save it
+    ebbrt::EventManager::EventContext context;
+    
+    size_t max_slices = _slices.size();
+    
+    int start, end, factor;
+
+    // all sizes are the same
+    std::cout << "_slices.size() " << _slices.size() << std::endl;
+    std::cout << "_transformations.size() "
+	      << _transformations.size() << std::endl;
+    
+    for (int i = 0; i < (int)nids.size(); i++) {
+	// serialization
+	std::ostringstream ofs;
+	boost::archive::text_oarchive oa(ofs);
+	
+	std::cout << "Before serialize" << std::endl;
+	
+	//_slices
+	factor = (int)ceil(max_slices / (float)numNodes);
+	start = i * factor;
+	end = i * factor + factor;
+	end = ((size_t)end > max_slices) ? max_slices : end;
+
+	std::cout << "start = " << start << " end = " << end << std::endl;
+	
+	oa& start& end;
+	
+	for (int j = start; j < end; j++) {
+	    oa& _slices[j];
+	}
+	
+	for (int j = start; j < end; j++) {
+	    oa& _transformations[j];
+	}
+
+	for (int j = start; j < end; j++) {
+	    oa& _simulated_slices[j];
+	}
+
+	for (int j = start; j < end; j++) {
+	    oa& _simulated_weights[j];
+	}
+
+	for (int j = start; j < end; j++) {
+	    oa& _simulated_inside[j];
+	}
+
+	for (int j = start; j < end; j++) {
+	    oa& _stack_index[j];
+	}
+	
+	size_t mslices = _stack_factor.size();
+	oa&mslices;
+	for(unsigned int j = 0; j < mslices; j++)
+	{
+	    oa& _stack_factor[j];
+	}
+
+	oa& _reconstructed& _mask &max_slices & _global_bias_correction;
+	
+	std::string ts = "E " + ofs.str();
+	
+	std::cout << "Sending to .. " /*<< nids[i].ToString()*/
+		  << " size: " << ts.length() << std::endl;
+	Print(nids[i], ts.c_str());
+    }
+
+    std::cout << "Saving context " << std::endl;
+
+    emec = &context;
+    ebbrt::event_manager->SaveContext(*emec);
+    
+    std::cout << "Received back " << std::endl;
+    std::cout << "EbbRTReconstruction done " << std::endl;
+    mypromise.SetValue();;
+}
+
+void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
+                              std::unique_ptr<IOBuf> &&buffer) 
+{
+    size_t _max_slices;
+    
+#ifndef __EBBRT_BM__
+    auto output = std::string(reinterpret_cast<const char*>(buffer->Data()));
+    std::cout << "Received ip: " << nid.ToString() << std::endl;
+    
+    if(output[0] == 'E') {
+	ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
+	char* t = (char*)(dp.Get(buffer->ComputeChainDataLength()));
+	membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
+	std::istream stream{&sb};
+	boost::archive::text_iarchive ia(stream);
+	
+	std::cout << "Parsing it back, received: "
+		  << buffer->ComputeChainDataLength() << " bytes" << std::endl;
+	
+	ia& _reconstructed;
+	ebbrt::event_manager->ActivateContext(std::move(*emec));
+    }
+#else
+    
+    auto output = std::string(reinterpret_cast<const char *>(buffer->Data()), buffer->Length());
+
+    if (output[0] == 'E') {
+	ebbrt::kprintf("Received msg length: %d bytes\n", buffer->Length());
+	ebbrt::kprintf("Number chain elements: %d\n", buffer->CountChainElements());
+	ebbrt::kprintf("Computed chain length: %d bytes\n",
+	           buffer->ComputeChainDataLength());
+
+	/****** copy sub buffers into one buffer *****/
+	ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
+	char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
+	membuf sb{ t + 2, t + buffer->ComputeChainDataLength() };
+	std::istream stream{ &sb };
+	/********* ******************************/
+
+	ebbrt::kprintf("Begin deserialization...\n");
+	/********** deserialize ******************/
+	boost::archive::text_iarchive ia(stream);
+
+	int start, end, diff;
+	ia &start &end;
+	diff = end - start;
+
+	ebbrt::kprintf("start:%d end:%d diff:%d\n", start, end, end);
+
+	_slices.resize(diff);
+	_transformations.resize(diff);
+	_simulated_slices.resize(diff);
+	_simulated_weights.resize(diff);
+	_simulated_inside.resize(diff);
+	_stack_index.resize(diff);
+
+	for (int k = 0; k < diff; k++) {
+	    ia &_slices[k];
+	}
+
+	ebbrt::kprintf("_slices deserialized\n");
+
+	for (int k = 0; k < diff; k++) {
+	    ia &_transformations[k];
+	}
+
+	for (int k = 0; k < diff; k++) {
+	    ia &_simulated_slices[k];
+	}
+
+	for (int k = 0; k < diff; k++) {
+	    ia &_simulated_weights[k];
+	}
+
+	for (int k = 0; k < diff; k++) {
+	    ia &_simulated_inside[k];
+	}
+
+	for (int k = 0; k < diff; k++) {
+	    ia &_stack_index[k];
+	}
+
+	int ssend;
+	ia &ssend;
+	_stack_factor.resize(ssend);
+	for (int k = 0; k < ssend; k++) {
+	    ia &_stack_factor[k];
+	}
+	ia &_reconstructed &_mask &_max_slices &_global_bias_correction;
+
+	/********* ******************************/
+
+	ebbrt::kprintf("Deserialized...\n");
+
+	 ebbrt::kprintf("_slices: %d\n", _slices.size());
+	 ebbrt::kprintf("_transformations: %d\n", _transformations.size());
+
+	int iterations = 1; // 9 //2 for Shepp-Logan is enough
+	double sigma = 12;
+	double lambda = 0.02;
+	double delta = 150;
+	int levels = 3;
+	double lastIterLambda = 0.01;
+	int rec_iterations;
+	bool global_bias_correction = false;
+	_global_bias_correction = false;
+	// flag to swich the intensity matching on and off
+	bool intensity_matching = true;
+	bool useCPU = true;
+	bool disableBiasCorr = true;
+
+	unsigned int rec_iterations_first = 4;
+	unsigned int rec_iterations_last = 13;
+
+	int i;
+
+	_step = 0.0001;
+	_quality_factor = 2;
+	_sigma_bias = 12;
+	_sigma_s_cpu = 0.025;
+	_sigma_s2_cpu = 0.025;
+	_mix_s_cpu = 0.9;
+	_mix_cpu = 0.9;
+	_delta = 1;
+	_lambda = 0.1;
+	_alpha = (0.05 / _lambda) * _delta * _delta;
+	_low_intensity_cutoff = 0.01;
+	_adaptive = false;
+
+	std::ostringstream ofs;
+	boost::archive::text_oarchive oa(ofs);
+	oa &_reconstructed;
+	
+	std::string ts = "E " + ofs.str();
+	ebbrt::kprintf("ts length: %d\n", ts.length());
+	
+	Print(nid, ts.c_str());
+      }
+#endif
+}
+
+void irtkReconstructionEbb::addNid(ebbrt::Messenger::NetworkId nid) {
+      nids.push_back(nid);
+      if ((int)nids.size() == numNodes) {
+	  nodesinit.SetValue();
+      }
+}
+
+ebbrt::Future<void> irtkReconstructionEbb::waitNodes() { return std::move(nodesinit.GetFuture()); }
+
+ebbrt::Future<void> irtkReconstructionEbb::waitReceive() { return std::move(mypromise.GetFuture()); }
+
+/*void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
+                              std::unique_ptr<IOBuf> &&iobuf) {
+#ifndef __EBBRT_BM__
+	std::printf("hosted receive message begin\n");
+#endif
+    auto dp = iobuf->GetDataPointer();
+    auto id = dp.Get<uint32_t>();
+#ifdef __EBBRT_BM__
+	ebbrt::kprintf("********Received message 1********\n");
+#endif
+
+    // Ping messages use id + 1, so they are always odd
+    if (id & 1) {
+#ifdef __EBBRT_BM__
+	ebbrt::kprintf("********Received message 2********\n");
+#endif
+	// Received Ping
+	auto buf = MakeUniqueIOBuf(sizeof(uint32_t));
+	auto dp = buf->GetMutDataPointer();
+	dp.Get<uint32_t>() = id - 1; // Send back with the original id
+	SendMessage(nid, std::move(buf));
+#ifdef __EBBRT_BM__
+	ebbrt::kprintf("backend sending message\n");
+#endif
+    } else {
+#ifndef __EBBRT_BM__
+	std::printf("hosted receive message 3\n");
+#endif
+	// Received Pong, lookup in the hash table for our promise and set it
+	std::lock_guard<std::mutex> guard(m_);
+	auto it = promise_map_.find(id);
+	assert(it != promise_map_.end());
+	it->second.SetValue();
+	promise_map_.erase(it);
+    }
+}
+*/
 
 void bbox(irtkRealImage &stack, irtkRigidTransformation &transformation,
           double &min_x, double &min_y, double &min_z, double &max_x,
@@ -174,9 +638,7 @@ void centroid(irtkRealImage &image, double &x, double &y, double &z) {
   //std::cout << "CENTROID:" << x << "," << y << "," << z << "\n\n";
 }
 
-/*   end of auxiliary functions */
-
-irtkReconstruction::irtkReconstruction(std::vector<int> dev, bool useCPUReg,
+/*irtkReconstructionEbb::irtkReconstructionEbb(std::vector<int> dev, bool useCPUReg,
                                        bool useCPU) {
   _step = 0.0001;
   _debug = false;
@@ -219,32 +681,18 @@ irtkReconstruction::irtkReconstruction(std::vector<int> dev, bool useCPUReg,
 
   _useCPUReg = useCPUReg;
   _useCPU = useCPU;
-  // FIXXME
-  // TODO as possible workaround, but ugly -- dactiveates multithreading in cu
-  // reconstructionGPU = new Reconstruction(dev, !_useCPUReg);
-  /*if (_useCPUReg)
-    {
-    reconstructionGPU = new Reconstruction(dev, false); //workaround
-    }
-    else
-    {*/
-  /*if(!useCPU)
-    {
-    reconstructionGPU = new Reconstruction(dev, true); //to produce the error
-    for CPUReg and multithreaded GPUs
-    }*/
-  //}
 }
+*/
 
-irtkReconstruction::~irtkReconstruction() {}
+irtkReconstructionEbb::~irtkReconstructionEbb() {}
 
-void irtkReconstruction::Set_debugGPU(bool val) { _debugGPU = val; }
+void irtkReconstructionEbb::Set_debugGPU(bool val) { _debugGPU = val; }
 
-void irtkReconstruction::SyncGPU() {}
+void irtkReconstructionEbb::SyncGPU() {}
 
-std::vector<irtkMatrix> irtkReconstruction::UpdateGPUTranformationMatrices() {}
+std::vector<irtkMatrix> irtkReconstructionEbb::UpdateGPUTranformationMatrices() {}
 
-void irtkReconstruction::CenterStacks(
+void irtkReconstructionEbb::CenterStacks(
     vector<irtkRealImage> &stacks,
     vector<irtkRigidTransformation> &stack_transformations,
     int templateNumber) {
@@ -275,7 +723,7 @@ void irtkReconstruction::CenterStacks(
 }
 
 class ParallelAverage {
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
   vector<irtkRealImage> &stacks;
   vector<irtkRigidTransformation> &stack_transformations;
 
@@ -355,7 +803,7 @@ public:
     weights += y.weights;
   }
 
-  ParallelAverage(irtkReconstruction *reconstructor,
+  ParallelAverage(irtkReconstructionEbb *reconstructor,
                   vector<irtkRealImage> &_stacks,
                   vector<irtkRigidTransformation> &_stack_transformations,
                   double _targetPadding, double _sourcePadding,
@@ -381,7 +829,7 @@ public:
 };
 
 class ParallelSliceAverage {
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
   vector<irtkRealImage> &slices;
   vector<irtkRigidTransformation> &slice_transformations;
   irtkRealImage &average;
@@ -425,7 +873,7 @@ public:
     }
   }
 
-  ParallelSliceAverage(irtkReconstruction *reconstructor,
+  ParallelSliceAverage(irtkReconstructionEbb *reconstructor,
                        vector<irtkRealImage> &_slices,
                        vector<irtkRigidTransformation> &_slice_transformations,
                        irtkRealImage &_average, irtkRealImage &_weights)
@@ -446,7 +894,7 @@ public:
   }
 };
 
-irtkRealImage irtkReconstruction::CreateAverage(
+irtkRealImage irtkReconstructionEbb::CreateAverage(
     vector<irtkRealImage> &stacks,
     vector<irtkRigidTransformation> &stack_transformations) {
   if (!_template_created) {
@@ -467,7 +915,7 @@ irtkRealImage irtkReconstruction::CreateAverage(
   return average;
 }
 
-double irtkReconstruction::CreateTemplate(irtkRealImage stack,
+double irtkReconstructionEbb::CreateTemplate(irtkRealImage stack,
                                           double resolution) {
   double dx, dy, dz, d;
 
@@ -514,7 +962,7 @@ double irtkReconstruction::CreateTemplate(irtkRealImage stack,
   return d;
 }
 
-irtkRealImage irtkReconstruction::CreateMask(irtkRealImage image) {
+irtkRealImage irtkReconstructionEbb::CreateMask(irtkRealImage image) {
   // binarize mask
   irtkRealPixel *ptr = image.GetPointerToVoxels();
   for (int i = 0; i < image.GetNumberOfVoxels(); i++) {
@@ -527,7 +975,7 @@ irtkRealImage irtkReconstruction::CreateMask(irtkRealImage image) {
   return image;
 }
 
-void irtkReconstruction::SetMask(irtkRealImage *mask, double sigma,
+void irtkReconstructionEbb::SetMask(irtkRealImage *mask, double sigma,
                                  double threshold) {
   if (!_template_created) {
     cerr << "Please create the template before setting the mask, so that the "
@@ -583,7 +1031,7 @@ void irtkReconstruction::SetMask(irtkRealImage *mask, double sigma,
 }
 
 void
-irtkReconstruction::TransformMask(irtkRealImage &image, irtkRealImage &mask,
+irtkReconstructionEbb::TransformMask(irtkRealImage &image, irtkRealImage &mask,
                                   irtkRigidTransformation &transformation) {
   // transform mask to the space of image
   irtkImageTransformation imagetransformation;
@@ -601,7 +1049,7 @@ irtkReconstruction::TransformMask(irtkRealImage &image, irtkRealImage &mask,
   mask = m;
 }
 
-void irtkReconstruction::ResetOrigin(irtkGreyImage &image,
+void irtkReconstructionEbb::ResetOrigin(irtkGreyImage &image,
                                      irtkRigidTransformation &transformation) {
   double ox, oy, oz;
   image.GetOrigin(ox, oy, oz);
@@ -614,7 +1062,7 @@ void irtkReconstruction::ResetOrigin(irtkGreyImage &image,
   transformation.PutRotationZ(0);
 }
 
-void irtkReconstruction::ResetOrigin(irtkRealImage &image,
+void irtkReconstructionEbb::ResetOrigin(irtkRealImage &image,
                                      irtkRigidTransformation &transformation) {
   double ox, oy, oz;
   image.GetOrigin(ox, oy, oz);
@@ -628,7 +1076,7 @@ void irtkReconstruction::ResetOrigin(irtkRealImage &image,
 }
 
 class ParallelStackRegistrations {
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
   vector<irtkRealImage> &stacks;
   vector<irtkRigidTransformation> &stack_transformations;
   int templateNumber;
@@ -638,7 +1086,7 @@ class ParallelStackRegistrations {
 
 public:
   ParallelStackRegistrations(
-      irtkReconstruction *_reconstructor, vector<irtkRealImage> &_stacks,
+      irtkReconstructionEbb *_reconstructor, vector<irtkRealImage> &_stacks,
       vector<irtkRigidTransformation> &_stack_transformations,
       int _templateNumber, irtkGreyImage &_target,
       irtkRigidTransformation &_offset, bool externalTemplate = false)
@@ -708,7 +1156,7 @@ public:
   }
 };
 
-void irtkReconstruction::StackRegistrations(
+void irtkReconstructionEbb::StackRegistrations(
     vector<irtkRealImage> &stacks,
     vector<irtkRigidTransformation> &stack_transformations, int templateNumber,
     bool useExternalTarget) {
@@ -764,7 +1212,7 @@ void irtkReconstruction::StackRegistrations(
   InvertStackTransformations(stack_transformations);
 }
 
-void irtkReconstruction::RestoreSliceIntensities() {
+void irtkReconstructionEbb::RestoreSliceIntensities() {
   if (_debug)
     cout << "Restoring the intensities of the slices. " << endl;
 
@@ -789,13 +1237,13 @@ void irtkReconstruction::RestoreSliceIntensities() {
   //std::cout << std::endl;
 }
 
-void irtkReconstruction::RestoreSliceIntensitiesGPU() {
+void irtkReconstructionEbb::RestoreSliceIntensitiesGPU() {
   // TODO
   //_stack_factor
   // reconstructionGPU->RestoreSliceIntensities(_stack_factor, _stack_index);
 }
 
-void irtkReconstruction::ScaleVolume() {
+void irtkReconstructionEbb::ScaleVolume() {
   if (_debug)
     cout << "Scaling volume: ";
 
@@ -841,7 +1289,7 @@ void irtkReconstruction::ScaleVolume() {
   cout << endl;
 }
 
-void irtkReconstruction::ScaleVolumeGPU() {
+void irtkReconstructionEbb::ScaleVolumeGPU() {
   if (_debug)
     cout << "Scaling volume: ";
 
@@ -850,10 +1298,10 @@ void irtkReconstruction::ScaleVolumeGPU() {
 }
 
 class ParallelSimulateSlices {
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
 
 public:
-  ParallelSimulateSlices(irtkReconstruction *_reconstructor)
+  ParallelSimulateSlices(irtkReconstructionEbb *_reconstructor)
       : reconstructor(_reconstructor) {}
 
   void operator()(const blocked_range<size_t> &r) const {
@@ -908,7 +1356,7 @@ public:
   }
 };
 
-void irtkReconstruction::SimulateSlices() {
+void irtkReconstructionEbb::SimulateSlices() {
     size_t inputIndex = 0;
     for (inputIndex = 0; inputIndex != _slices.size(); inputIndex++) {
 	// Calculate simulated slice
@@ -952,14 +1400,14 @@ void irtkReconstruction::SimulateSlices() {
     }
 }
 
-void irtkReconstruction::SimulateSlicesGPU() {
+void irtkReconstructionEbb::SimulateSlicesGPU() {
   if (_slice_inside_gpu.size() == 0) {
     _slice_inside_gpu.clear();
     _slice_inside_gpu.resize(_slices.size());
   }
 }
 
-void irtkReconstruction::SimulateStacks(vector<irtkRealImage> &stacks) {
+void irtkReconstructionEbb::SimulateStacks(vector<irtkRealImage> &stacks) {
   if (_debug)
     cout << "Simulating stacks." << endl;
 
@@ -1014,7 +1462,7 @@ void irtkReconstruction::SimulateStacks(vector<irtkRealImage> &stacks) {
   }
 }
 
-void irtkReconstruction::MatchStackIntensities(
+void irtkReconstructionEbb::MatchStackIntensities(
     vector<irtkRealImage> &stacks,
     vector<irtkRigidTransformation> &stack_transformations, double averageValue,
     bool together) {
@@ -1123,7 +1571,7 @@ void irtkReconstruction::MatchStackIntensities(
   }
 }
 
-void irtkReconstruction::MatchStackIntensitiesWithMasking(
+void irtkReconstructionEbb::MatchStackIntensitiesWithMasking(
     vector<irtkRealImage> &stacks,
     vector<irtkRigidTransformation> &stack_transformations, double averageValue,
     bool together) {
@@ -1237,7 +1685,7 @@ void irtkReconstruction::MatchStackIntensitiesWithMasking(
   }
 }
 
-void irtkReconstruction::generatePSFVolume() {
+void irtkReconstructionEbb::generatePSFVolume() {
   double dx, dy, dz;
   // currentlz just a test function
   _slices[_slices.size() - 1].GetPixelSize(&dx, &dy, &dz);
@@ -1346,7 +1794,7 @@ void irtkReconstruction::generatePSFVolume() {
   }
 }
 
-void irtkReconstruction::CreateSlicesAndTransformations(
+void irtkReconstructionEbb::CreateSlicesAndTransformations(
     vector<irtkRealImage> &stacks,
     vector<irtkRigidTransformation> &stack_transformations,
     vector<double> &thickness, const vector<irtkRealImage> &probability_maps) {
@@ -1394,7 +1842,7 @@ void irtkReconstruction::CreateSlicesAndTransformations(
   cout << "Number of slices: " << _slices.size() << endl;
 }
 
-void irtkReconstruction::ResetSlices(vector<irtkRealImage> &stacks,
+void irtkReconstructionEbb::ResetSlices(vector<irtkRealImage> &stacks,
                                      vector<double> &thickness) {
   if (_debug)
     cout << "ResetSlices" << endl;
@@ -1426,7 +1874,7 @@ void irtkReconstruction::ResetSlices(vector<irtkRealImage> &stacks,
   }
 }
 
-void irtkReconstruction::SetSlicesAndTransformations(
+void irtkReconstructionEbb::SetSlicesAndTransformations(
     vector<irtkRealImage> &slices,
     vector<irtkRigidTransformation> &slice_transformations,
     vector<int> &stack_ids, vector<double> &thickness) {
@@ -1460,7 +1908,7 @@ void irtkReconstruction::SetSlicesAndTransformations(
   }
 }
 
-void irtkReconstruction::UpdateSlices(vector<irtkRealImage> &stacks,
+void irtkReconstructionEbb::UpdateSlices(vector<irtkRealImage> &stacks,
                                       vector<double> &thickness) {
   _slices.clear();
   // for each stack
@@ -1483,7 +1931,7 @@ void irtkReconstruction::UpdateSlices(vector<irtkRealImage> &stacks,
   cout << "Number of slices: " << _slices.size() << endl;
 }
 
-void irtkReconstruction::MaskSlices() {
+void irtkReconstructionEbb::MaskSlices() {
   cout << "Masking slices ... ";
 
   double x, y, z;
@@ -1534,9 +1982,9 @@ void irtkReconstruction::MaskSlices() {
 // TODO implement non rigid registration and its evaluation in cuda...
 class ParallelSliceToVolumeRegistration {
 public:
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
 
-  ParallelSliceToVolumeRegistration(irtkReconstruction *_reconstructor)
+  ParallelSliceToVolumeRegistration(irtkReconstructionEbb *_reconstructor)
       : reconstructor(_reconstructor) {}
 
   void operator()(const blocked_range<size_t> &r) const {
@@ -1551,7 +1999,7 @@ public:
       irtkRealImage slice, w, b, t;
       irtkResamplingWithPadding<irtkRealPixel> resampling(attr._dx, attr._dx,
                                                           attr._dx, -1);
-      // irtkReconstruction dummy_reconstruction; // this also creats an
+      // irtkReconstructionEbb dummy_reconstruction; // this also creats an
       // unwanted instance of the GPU reconstruction
 
       // target = _slices[inputIndex];
@@ -1567,7 +2015,7 @@ public:
         // put origin to zero
         irtkRigidTransformation offset;
         // dummy_reconstruction.ResetOrigin(target,offset);
-        irtkReconstruction::ResetOrigin(target, offset);
+        irtkReconstructionEbb::ResetOrigin(target, offset);
         irtkMatrix mo = offset.GetMatrix();
         irtkMatrix m = reconstructor->_transformations[inputIndex].GetMatrix();
         m = m * mo;
@@ -1602,14 +2050,14 @@ public:
   }
 };
 
-void irtkReconstruction::testCPURegGPU() {}
+void irtkReconstructionEbb::testCPURegGPU() {}
 
-void irtkReconstruction::PrepareRegistrationSlices() {}
+void irtkReconstructionEbb::PrepareRegistrationSlices() {}
 class ParallelSliceToVolumeRegistrationGPU {
 public:
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
 
-  ParallelSliceToVolumeRegistrationGPU(irtkReconstruction *_reconstructor)
+  ParallelSliceToVolumeRegistrationGPU(irtkReconstructionEbb *_reconstructor)
       : reconstructor(_reconstructor) {}
 
   void operator()(const blocked_range<size_t> &r) const {
@@ -1641,9 +2089,9 @@ public:
   void operator()() const {}
 };
 
-void irtkReconstruction::SliceToVolumeRegistrationGPU() {}
+void irtkReconstructionEbb::SliceToVolumeRegistrationGPU() {}
 
-void irtkReconstruction::SliceToVolumeRegistration() {
+void irtkReconstructionEbb::SliceToVolumeRegistration() {
     if (_slices_regCertainty.size() == 0) {
 	_slices_regCertainty.resize(_slices.size());
     }
@@ -1694,9 +2142,9 @@ void irtkReconstruction::SliceToVolumeRegistration() {
 
 class ParallelCoeffInit {
 public:
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
 
-  ParallelCoeffInit(irtkReconstruction *_reconstructor)
+  ParallelCoeffInit(irtkReconstructionEbb *_reconstructor)
       : reconstructor(_reconstructor) {}
 
   void operator()(const blocked_range<size_t> &r) const {
@@ -2000,7 +2448,7 @@ public:
   }
 };
 
-void irtkReconstruction::CoeffInit() {
+void irtkReconstructionEbb::CoeffInit() {
     _volcoeffs.clear();
     _volcoeffs.resize(_slices.size());
     
@@ -2306,17 +2754,19 @@ void irtkReconstruction::CoeffInit() {
     }
 
     _average_volume_weight = sum / num;
+
+//    std::printf("_average_volume_weight = %lf\n", _average_volume_weight);
 } // end of CoeffInit()
 
-void irtkReconstruction::SyncCPU() {
+void irtkReconstructionEbb::SyncCPU() {
   irtkGenericImage<float> trecon = _reconstructed_gpu;
 
   // reconstructionGPU->syncCPU(trecon.GetPointerToVoxels());
   _reconstructed = trecon;
-  printf("Sync done. ready for more...\n");
+  //printf("Sync done. ready for more...\n");
 }
 
-irtkRealImage irtkReconstruction::GetReconstructedGPU() {
+irtkRealImage irtkReconstructionEbb::GetReconstructedGPU() {
   irtkGenericImage<float> trecon = _reconstructed_gpu;
 
   // debug only
@@ -2325,9 +2775,9 @@ irtkRealImage irtkReconstruction::GetReconstructedGPU() {
   return trecon;
 }
 
-void irtkReconstruction::GaussianReconstructionGPU() {}
+void irtkReconstructionEbb::GaussianReconstructionGPU() {}
 
-void irtkReconstruction::GaussianReconstruction() {
+void irtkReconstructionEbb::GaussianReconstruction() {
     
     unsigned int inputIndex;
     int i, j, k, n;
@@ -2417,7 +2867,7 @@ void irtkReconstruction::GaussianReconstruction() {
   
 }
 
-void irtkReconstruction::InitializeEM() {
+void irtkReconstructionEbb::InitializeEM() {
   if (_debug)
     cout << "InitializeEM" << endl;
 
@@ -2459,7 +2909,7 @@ void irtkReconstruction::InitializeEM() {
   }
 }
 
-void irtkReconstruction::InitializeEMValuesGPU() {
+void irtkReconstructionEbb::InitializeEMValuesGPU() {
   if (_debug)
     cout << "InitializeEMValues" << endl;
 
@@ -2473,7 +2923,7 @@ void irtkReconstruction::InitializeEMValuesGPU() {
   // reconstructionGPU->InitializeEMValues();
 }
 
-void irtkReconstruction::InitializeEMGPU() {
+void irtkReconstructionEbb::InitializeEMGPU() {
   if (_debug)
     cout << "InitializeEM" << endl;
 
@@ -2505,7 +2955,7 @@ void irtkReconstruction::InitializeEMGPU() {
   }
 }
 
-void irtkReconstruction::InitializeEMValues() {
+void irtkReconstructionEbb::InitializeEMValues() {
     for (int i = 0; i < _slices.size(); i++) {
     // Initialise voxel weights and bias values
     irtkRealPixel *pw = _weights[i].GetPointerToVoxels();
@@ -2539,7 +2989,7 @@ void irtkReconstruction::InitializeEMValues() {
 
 }
 
-void irtkReconstruction::InitializeRobustStatisticsGPU() {
+void irtkReconstructionEbb::InitializeRobustStatisticsGPU() {
   if (_debug)
     cout << "InitializeRobustStatistics" << endl;
 
@@ -2576,7 +3026,7 @@ void irtkReconstruction::InitializeRobustStatisticsGPU() {
   // reconstructionGPU->UpdateScaleVector(_scale_gpu, _slice_weight_gpu);
 }
 
-void irtkReconstruction::InitializeRobustStatistics() {
+void irtkReconstructionEbb::InitializeRobustStatistics() {
   // Initialise parameter of EM robust statistics
   int i, j;
   irtkRealImage slice, sim;
@@ -2625,17 +3075,11 @@ void irtkReconstruction::InitializeRobustStatistics() {
   _m_cpu = 1 / (2.1 * _max_intensity - 1.9 * _min_intensity);
 
   //if (_debug || _debugGPU)
-  /*std::cout << "Initializing robust statistics CPU: "
-	    << "sigma=" << _sigma_cpu << " "
-	    << "sigma_s_cpu=" << _sigma_s_cpu << " "
-	    << "m=" << _m_cpu << " "
-	    << "mix=" << _mix_cpu << " "
-	    << "mix_s=" << _mix_s_cpu << std::endl;*/
-
+  
 }
 
 class ParallelEStep {
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
   vector<double> &slice_potential;
 
 public:
@@ -2716,7 +3160,7 @@ public:
     //std::printf("\n");
   }
 
-  ParallelEStep(irtkReconstruction *reconstructor,
+  ParallelEStep(irtkReconstructionEbb *reconstructor,
                 vector<double> &slice_potential)
       : reconstructor(reconstructor), slice_potential(slice_potential) {}
 
@@ -2729,224 +3173,12 @@ public:
   }
 };
 
-void irtkReconstruction::EStepGPU() {
-    /*
-  // EStep performs calculation of voxel-wise and slice-wise posteriors
-  // (weights)
-  if (_debug)
-    cout << "EStep: " << endl;
-
-  unsigned int inputIndex;
-  vector<float> slice_potential_gpu(_slices.size(), 0);
-  // reconstructionGPU->EStep(_m_gpu, _sigma_gpu, _mix_gpu,
-  // slice_potential_gpu);
-
-  if (_debugGPU) {
-    irtkGenericImage<float> bweights(reconstructionGPU->v_weights.size.x,
-      reconstructionGPU->v_weights.size.y, reconstructionGPU->v_weights.size.z);
-      reconstructionGPU->debugWeights(bweights.GetPointerToVoxels());
-      bweights.Write("testweightGPU.nii");
-  }
-
-  // can stay on CPU
-
-  // To force-exclude slices predefined by a user, set their potentials to -1
-  for (unsigned int i = 0; i < _force_excluded.size(); i++)
-    slice_potential_gpu[_force_excluded[i]] = -1;
-
-  // exclude slices identified as having small overlap with ROI, set their
-  // potentials to -1
-  for (unsigned int i = 0; i < _small_slices.size(); i++)
-    slice_potential_gpu[_small_slices[i]] = -1;
-
-  // these are unrealistic scales pointing at misregistration - exclude the
-  // corresponding slices
-  for (inputIndex = 0; inputIndex < slice_potential_gpu.size(); inputIndex++)
-    if ((_scale_gpu[inputIndex] < 0.2) || (_scale_gpu[inputIndex] > 5)) {
-      slice_potential_gpu[inputIndex] = -1;
-    }
-
-  if (_debug || _debugGPU) {
-    cout << setprecision(4);
-    cout << endl << "Slice potentials GPU: ";
-    for (inputIndex = 0; inputIndex < slice_potential_gpu.size(); inputIndex++)
-      cout << slice_potential_gpu[inputIndex] << " ";
-    cout << endl << "Slice weights GPU: ";
-    for (inputIndex = 0; inputIndex < _slice_weight_gpu.size(); inputIndex++)
-      cout << _slice_weight_gpu[inputIndex] << " ";
-    cout << endl;
-  }
-
-  // Calulation of slice-wise robust statistics parameters.
-  // This is theoretically M-step,
-  // but we want to use latest estimate of slice potentials
-  // to update the parameters
-
-  // Calculate means of the inlier and outlier potentials
-  double sum = 0, den = 0, sum2 = 0, den2 = 0, maxs = 0, mins = 1;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_gpu[inputIndex] >= 0) {
-      // calculate means
-      sum += slice_potential_gpu[inputIndex] * _slice_weight_gpu[inputIndex];
-      den += _slice_weight_gpu[inputIndex];
-      sum2 += slice_potential_gpu[inputIndex] *
-              (1.0 - _slice_weight_gpu[inputIndex]);
-      den2 += (1.0 - _slice_weight_gpu[inputIndex]);
-
-      // calculate min and max of potentials in case means need to be initalized
-      if (slice_potential_gpu[inputIndex] > maxs)
-        maxs = slice_potential_gpu[inputIndex];
-      if (slice_potential_gpu[inputIndex] < mins)
-        mins = slice_potential_gpu[inputIndex];
-    }
-
-  if (den > 0)
-    _mean_s_gpu = sum / den;
-  else
-    _mean_s_gpu = mins;
-
-  if (den2 > 0)
-    _mean_s2_gpu = sum2 / den2;
-  else
-    _mean_s2_gpu = (maxs + _mean_s_gpu) / 2.0;
-
-  // Calculate the variances of the potentials
-  sum = 0;
-  den = 0;
-  sum2 = 0;
-  den2 = 0;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_gpu[inputIndex] >= 0) {
-      sum += (slice_potential_gpu[inputIndex] - _mean_s_gpu) *
-             (slice_potential_gpu[inputIndex] - _mean_s_gpu) *
-             _slice_weight_gpu[inputIndex];
-      den += _slice_weight_gpu[inputIndex];
-
-      sum2 += (slice_potential_gpu[inputIndex] - _mean_s2_gpu) *
-              (slice_potential_gpu[inputIndex] - _mean_s2_gpu) *
-              (1 - _slice_weight_gpu[inputIndex]);
-      den2 += (1 - _slice_weight_gpu[inputIndex]);
-    }
-
-  //_sigma_s
-  if ((sum > 0) && (den > 0)) {
-    _sigma_s_gpu = sum / den;
-    // do not allow too small sigma
-    if (_sigma_s_gpu < _step * _step / 6.28)
-      _sigma_s_gpu = _step * _step / 6.28;
-  } else {
-    _sigma_s_gpu = 0.025;
-    if (_debug) {
-      if (sum <= 0)
-        cout << "All slices are equal. ";
-      if (den < 0) // this should not happen
-        cout << "All slices are outliers. ";
-      cout << "Setting sigma to " << sqrt(_sigma_s_gpu) << endl;
-    }
-  }
-
-  // sigma_s2
-  if ((sum2 > 0) && (den2 > 0)) {
-    _sigma_s2_gpu = sum2 / den2;
-    // do not allow too small sigma
-    if (_sigma_s2_gpu < _step * _step / 6.28)
-      _sigma_s2_gpu = _step * _step / 6.28;
-  } else {
-    _sigma_s2_gpu =
-        (_mean_s2_gpu - _mean_s_gpu) * (_mean_s2_gpu - _mean_s_gpu) / 4;
-    // do not allow too small sigma
-    if (_sigma_s2_gpu < _step * _step / 6.28)
-      _sigma_s2_gpu = _step * _step / 6.28;
-
-    if (_debug) {
-      if (sum2 <= 0)
-        cout << "All slices are equal. ";
-      if (den2 <= 0)
-        cout << "All slices inliers. ";
-      cout << "Setting sigma_s2 to " << sqrt(_sigma_s2_gpu) << endl;
-    }
-  }
-
-  // Calculate slice weights
-  double gs1, gs2;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
-    // Slice does not have any voxels in volumetric ROI
-    if (slice_potential_gpu[inputIndex] == -1) {
-      _slice_weight_gpu[inputIndex] = 0;
-      continue;
-    }
-
-    // All slices are outliers or the means are not valid
-    if ((den <= 0) || (_mean_s2_gpu <= _mean_s_gpu)) {
-      _slice_weight_gpu[inputIndex] = 1;
-      continue;
-    }
-
-    // likelihood for inliers
-    if (slice_potential_gpu[inputIndex] < _mean_s2_gpu)
-      gs1 = G(slice_potential_gpu[inputIndex] - _mean_s_gpu, _sigma_s_gpu);
-    else
-      gs1 = 0;
-
-    // likelihood for outliers
-    if (slice_potential_gpu[inputIndex] > _mean_s_gpu)
-      gs2 = G(slice_potential_gpu[inputIndex] - _mean_s2_gpu, _sigma_s2_gpu);
-    else
-      gs2 = 0;
-
-    // calculate slice weight
-    double likelihood = gs1 * _mix_s_gpu + gs2 * (1 - _mix_s_gpu);
-    if (likelihood > 0)
-      _slice_weight_gpu[inputIndex] = gs1 * _mix_s_gpu / likelihood;
-    else {
-      if (slice_potential_gpu[inputIndex] <= _mean_s_gpu)
-        _slice_weight_gpu[inputIndex] = 1;
-      if (slice_potential_gpu[inputIndex] >= _mean_s2_gpu)
-        _slice_weight_gpu[inputIndex] = 0;
-      if ((slice_potential_gpu[inputIndex] < _mean_s2_gpu) &&
-          (slice_potential_gpu[inputIndex] > _mean_s_gpu)) // should not happen
-        _slice_weight_gpu[inputIndex] = 1;
-    }
-  }
-
-  // Update _mix_s this should also be part of MStep
-  sum = 0;
-  int num = 0;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_gpu[inputIndex] >= 0) {
-      sum += _slice_weight_gpu[inputIndex];
-      num++;
-    }
-
-  if (num > 0)
-    _mix_s_gpu = sum / num;
-  else {
-    cout << "All slices are outliers. Setting _mix_s to 0.9." << endl;
-    _mix_s_gpu = 0.9;
-  }
-
-  if (_debug || _debugGPU) {
-    cout << setprecision(3);
-    cout << "Slice robust statistics parameters GPU: ";
-    cout << "means: " << _mean_s_gpu << " " << _mean_s2_gpu << "  ";
-    cout << "sigmas: " << sqrt(_sigma_s_gpu) << " " << sqrt(_sigma_s2_gpu)
-         << "  ";
-    cout << "proportions: " << _mix_s_gpu << " " << 1 - _mix_s_gpu << endl;
-    cout << "Slice weights GPU: ";
-    for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-      cout << _slice_weight_gpu[inputIndex] << " ";
-    cout << "Slice potential: ";
-      for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-      cout << slice_potential[inputIndex] << " ";
-    cout << endl;
-  }
-    */
-
+void irtkReconstructionEbb::EStepGPU() {
   // TODO only slice weight
   // reconstructionGPU->UpdateSliceWeights(_slice_weight_gpu);
 }
 
-void irtkReconstruction::parallelEStep(vector<double>& slice_potential)
+void irtkReconstructionEbb::parallelEStep(vector<double>& slice_potential)
 {
     for(size_t inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
 	// read the current slice
@@ -2999,11 +3231,7 @@ void irtkReconstruction::parallelEStep(vector<double>& slice_potential)
 			//w.PutAsDouble(i, j, 0, weight);
 			
 			//_weights[inputIndex].PutAsDouble(i, j, 0, weight);
-			/**************
-			 * For some reason w.PutAsDouble wasn't updating
-			 * the values. Is irtkRealImage &w = _weights above
-			 * not getting a reference back?
-			 ***************/
+
 			_weights[inputIndex](i, j, 0) = weight;
 			// calculate slice potentials
 			if (_simulated_weights[inputIndex](i, j, 0) >
@@ -3025,228 +3253,7 @@ void irtkReconstruction::parallelEStep(vector<double>& slice_potential)
     }
 }
 
-void irtkReconstruction::EStep() {
-    /*
-  // EStep performs calculation of voxel-wise and slice-wise posteriors
-  // (weights)
-  //if (_debug)
-//    cout << "** EStep:  ** " << endl;
-
-  unsigned int inputIndex;
-  irtkRealImage slice, w, b, sim;
-  int num = 0;
-  vector<double> slice_potential_cpu(_slices.size(), 0);
-  // std::cout << "num Estp CPU: ";
-  ParallelEStep parallelEStep(this, slice_potential_cpu);
-  parallelEStep();
-
-  //std::printf("## _weights = %f\n", sumImage(_weights));
-  
-  if (_debugGPU) {
-    _weights[40].Write("testweightCPU.nii");
-  }
-
-  // To force-exclude slices predefined by a user, set their potentials to -1
-  //for (unsigned int i = 0; i < _force_excluded.size(); i++)
-  //slice_potential_cpu[_force_excluded[i]] = -1;
-
-  // exclude slices identified as having small overlap with ROI, set their
-  // potentials to -1
-  for (unsigned int i = 0; i < _small_slices.size(); i++)
-    slice_potential_cpu[_small_slices[i]] = -1;
-
-  // these are unrealistic scales pointing at misregistration - exclude the
-  // corresponding slices
-  for (inputIndex = 0; inputIndex < slice_potential_cpu.size(); inputIndex++)
-    if ((_scale_cpu[inputIndex] < 0.2) || (_scale_cpu[inputIndex] > 5)) {
-      slice_potential_cpu[inputIndex] = -1;
-    }
-
-  if (_debug || _debugGPU) {
-    cout << setprecision(4);
-    cout << endl << "Slice potentials CPU: ";
-    for (inputIndex = 0; inputIndex < slice_potential_cpu.size(); inputIndex++)
-      cout << slice_potential_cpu[inputIndex] << " ";
-    cout << endl << "Slice weights CPU: ";
-    for (inputIndex = 0; inputIndex < _slice_weight_cpu.size(); inputIndex++)
-      cout << _slice_weight_cpu[inputIndex] << " ";
-    cout << endl;
-  }
-
-  // Calulation of slice-wise robust statistics parameters.
-  // This is theoretically M-step,
-  // but we want to use latest estimate of slice potentials
-  // to update the parameters
-
-  // Calculate means of the inlier and outlier potentials
-  double sum = 0, den = 0, sum2 = 0, den2 = 0, maxs = 0, mins = 1;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_cpu[inputIndex] >= 0) {
-      // calculate means
-      sum += slice_potential_cpu[inputIndex] * _slice_weight_cpu[inputIndex];
-      den += _slice_weight_cpu[inputIndex];
-      sum2 +=
-          slice_potential_cpu[inputIndex] * (1 - _slice_weight_cpu[inputIndex]);
-      den2 += (1 - _slice_weight_cpu[inputIndex]);
-
-      // calculate min and max of potentials in case means need to be initalized
-      if (slice_potential_cpu[inputIndex] > maxs)
-        maxs = slice_potential_cpu[inputIndex];
-      if (slice_potential_cpu[inputIndex] < mins)
-        mins = slice_potential_cpu[inputIndex];
-    }
-
-  if (den > 0)
-    _mean_s_cpu = sum / den;
-  else
-    _mean_s_cpu = mins;
-
-  if (den2 > 0)
-    _mean_s2_cpu = sum2 / den2;
-  else
-    _mean_s2_cpu = (maxs + _mean_s_cpu) / 2;
-
-  // Calculate the variances of the potentials
-  sum = 0;
-  den = 0;
-  sum2 = 0;
-  den2 = 0;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_cpu[inputIndex] >= 0) {
-      sum += (slice_potential_cpu[inputIndex] - _mean_s_cpu) *
-             (slice_potential_cpu[inputIndex] - _mean_s_cpu) *
-             _slice_weight_cpu[inputIndex];
-      den += _slice_weight_cpu[inputIndex];
-
-      sum2 += (slice_potential_cpu[inputIndex] - _mean_s2_cpu) *
-              (slice_potential_cpu[inputIndex] - _mean_s2_cpu) *
-              (1 - _slice_weight_cpu[inputIndex]);
-      den2 += (1 - _slice_weight_cpu[inputIndex]);
-    }
-
-  //_sigma_s
-  if ((sum > 0) && (den > 0)) {
-    _sigma_s_cpu = sum / den;
-    // do not allow too small sigma
-    if (_sigma_s_cpu < _step * _step / 6.28)
-      _sigma_s_cpu = _step * _step / 6.28;
-  } else {
-    _sigma_s_cpu = 0.025;
-    if (_debug) {
-      if (sum <= 0)
-        cout << "All slices are equal. ";
-      if (den < 0) // this should not happen
-        cout << "All slices are outliers. ";
-      cout << "Setting sigma to " << sqrt(_sigma_s_cpu) << endl;
-    }
-  }
-
-  // sigma_s2
-  if ((sum2 > 0) && (den2 > 0)) {
-    _sigma_s2_cpu = sum2 / den2;
-    // do not allow too small sigma
-    if (_sigma_s2_cpu < _step * _step / 6.28)
-      _sigma_s2_cpu = _step * _step / 6.28;
-  } else {
-    _sigma_s2_cpu =
-        (_mean_s2_cpu - _mean_s_cpu) * (_mean_s2_cpu - _mean_s_cpu) / 4;
-    // do not allow too small sigma
-    if (_sigma_s2_cpu < _step * _step / 6.28)
-      _sigma_s2_cpu = _step * _step / 6.28;
-
-    if (_debug) {
-      if (sum2 <= 0)
-        cout << "All slices are equal. ";
-      if (den2 <= 0)
-        cout << "All slices inliers. ";
-      cout << "Setting sigma_s2 to " << sqrt(_sigma_s2_cpu) << endl;
-    }
-  }
-
-  // Calculate slice weights
-  double gs1, gs2;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
-    // Slice does not have any voxels in volumetric ROI
-    if (slice_potential_cpu[inputIndex] == -1) {
-      _slice_weight_cpu[inputIndex] = 0;
-      continue;
-    }
-
-    // All slices are outliers or the means are not valid
-    if ((den <= 0) || (_mean_s2_cpu <= _mean_s_cpu)) {
-      _slice_weight_cpu[inputIndex] = 1;
-      continue;
-    }
-
-    // likelihood for inliers
-    if (slice_potential_cpu[inputIndex] < _mean_s2_cpu)
-      gs1 = G(slice_potential_cpu[inputIndex] - _mean_s_cpu, _sigma_s_cpu);
-    else
-      gs1 = 0;
-
-    // likelihood for outliers
-    if (slice_potential_cpu[inputIndex] > _mean_s_cpu)
-      gs2 = G(slice_potential_cpu[inputIndex] - _mean_s2_cpu, _sigma_s2_cpu);
-    else
-      gs2 = 0;
-
-    // calculate slice weight
-    double likelihood = gs1 * _mix_s_cpu + gs2 * (1 - _mix_s_cpu);
-    if (likelihood > 0)
-      _slice_weight_cpu[inputIndex] = gs1 * _mix_s_cpu / likelihood;
-    else {
-      if (slice_potential_cpu[inputIndex] <= _mean_s_cpu)
-        _slice_weight_cpu[inputIndex] = 1;
-      if (slice_potential_cpu[inputIndex] >= _mean_s2_cpu)
-        _slice_weight_cpu[inputIndex] = 0;
-      if ((slice_potential_cpu[inputIndex] < _mean_s2_cpu) &&
-          (slice_potential_cpu[inputIndex] > _mean_s_cpu)) // should not happen
-        _slice_weight_cpu[inputIndex] = 1;
-    }
-  }
-
-  // Update _mix_s this should also be part of MStep
-  sum = 0;
-  num = 0;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_cpu[inputIndex] >= 0) {
-      sum += _slice_weight_cpu[inputIndex];
-      num++;
-    }
-
-  if (num > 0)
-    _mix_s_cpu = sum / num;
-  else {
-    cout << "All slices are outliers. Setting _mix_s to 0.9." << endl;
-    _mix_s_cpu = 0.9;
-  }
-    */
-  /*double tempSum = 0.0;
-  for(inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
-      // Calculate error, voxel weights, and slice potential
-      for (int i = 0; i < _slices[inputIndex].GetX(); i++) {
-	  for (int j = 0; j < _slices[inputIndex].GetY(); j++) {
-	      tempSum += _weights[inputIndex](i, j, 0);
-	  }
-      }
-  }
-  std::printf("tempSum = %lf\n", tempSum);*/
-/*
-  if (_debug || _debugGPU) {
-    cout << setprecision(3);
-    cout << "Slice robust statistics parameters CPU: ";
-    cout << "means: " << _mean_s_cpu << " " << _mean_s2_cpu << "  ";
-    cout << "sigmas: " << sqrt(_sigma_s_cpu) << " " << sqrt(_sigma_s2_cpu)
-         << "  ";
-    cout << "proportions: " << _mix_s_cpu << " " << 1 - _mix_s_cpu << endl;
-    cout << "Slice weights  CPU: ";
-    for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-      cout << _slice_weight_cpu[inputIndex] << " ";
-    //cout << "Slice potential: ";
-    //for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    //cout << slice_potential[inputIndex] << " ";
-    cout << endl;
-  }*/
+void irtkReconstructionEbb::EStep() {
 
   size_t inputIndex;
     irtkRealImage slice, w, b, sim;
@@ -3401,10 +3408,10 @@ void irtkReconstruction::EStep() {
 }
 
 class ParallelScale {
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
 
 public:
-  ParallelScale(irtkReconstruction *_reconstructor)
+  ParallelScale(irtkReconstructionEbb *_reconstructor)
       : reconstructor(_reconstructor) {}
 
   void operator()(const blocked_range<size_t> &r) const {
@@ -3454,7 +3461,7 @@ public:
   }
 };
 
-void irtkReconstruction::ScaleGPU() {
+void irtkReconstructionEbb::ScaleGPU() {
   if (_debug)
     cout << "Scale" << endl;
 
@@ -3469,34 +3476,8 @@ void irtkReconstruction::ScaleGPU() {
   }
 }
 
-void irtkReconstruction::Scale() {
-    /*
-  if (_debug)
-    cout << "Scale" << endl;
-
-  ParallelScale parallelScale(this);
-  parallelScale();
-
-  // Normalise scales by setting geometric mean to 1
-  // now abandoned
-  // if (!_global_bias_correction)
-  //{
-  //  double product = 1;
-  //  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-  //      product *= _scale[inputIndex];
-  //  product = pow(product, 1.0 / _slices.size());
-  //  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-  //      _scale[inputIndex] /= product;
-  //}
-
-  if (_debug || _debugGPU) {
-    cout << setprecision(3);
-    cout << "Slice scale CPU= ";
-    for (unsigned int inputIndex = 0; inputIndex < _slices.size(); ++inputIndex)
-      cout << inputIndex << ":" << _scale_cpu[inputIndex] << " ";
-    cout << endl;
-    }*/
-
+void irtkReconstructionEbb::Scale() {
+ 
     size_t inputIndex = 0;
     for(inputIndex = 0; inputIndex != _slices.size(); inputIndex++) {
 	// alias the current slice
@@ -3536,7 +3517,7 @@ void irtkReconstruction::Scale() {
 }
 
 class ParallelBias {
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
 
 public:
   void operator()(const blocked_range<size_t> &r) const {
@@ -3632,7 +3613,7 @@ public:
     }
   }
 
-  ParallelBias(irtkReconstruction *reconstructor)
+  ParallelBias(irtkReconstructionEbb *reconstructor)
       : reconstructor(reconstructor) {}
 
   // execute
@@ -3644,7 +3625,7 @@ public:
   }
 };
 
-void irtkReconstruction::BiasGPU() {
+void irtkReconstructionEbb::BiasGPU() {
 
   if (_debug)
     cout << "Correcting bias ...";
@@ -3655,29 +3636,14 @@ void irtkReconstruction::BiasGPU() {
   // reconstructionGPU->CorrectBias(_sigma_bias, _global_bias_correction);
   // //assuming globally constant pixel size
   if (_debugGPU) {
-    /*irtkGenericImage<float> bimg(reconstructionGPU->v_bias.size.x,
-      reconstructionGPU->v_bias.size.y, reconstructionGPU->v_bias.size.z);
-      reconstructionGPU->debugBias(bimg.GetPointerToVoxels());
-      bimg.Write("biasFieldGPU.nii");*/
+
   }
 
   if (_debug)
     cout << "done. " << endl;
 }
 
-void irtkReconstruction::Bias() {
-    /*
-  if (_debug)
-    cout << "Correcting bias ...";
-
-  ParallelBias parallelBias(this);
-  parallelBias();
-
-  //_bias[79].Write("biasField79CPU.nii");
-
-  if (_debug)
-    cout << "done. " << endl;
-    */
+void irtkReconstructionEbb::Bias() {
 
     
     size_t inputIndex = 0;
@@ -3769,7 +3735,7 @@ void irtkReconstruction::Bias() {
 }
 
 class ParallelSuperresolution {
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
 
 public:
   irtkRealImage confidence_map;
@@ -3836,7 +3802,7 @@ public:
     confidence_map += y.confidence_map;
   }
 
-  ParallelSuperresolution(irtkReconstruction *reconstructor)
+  ParallelSuperresolution(irtkReconstructionEbb *reconstructor)
       : reconstructor(reconstructor) {
     // Clear addon
     addon.Initialize(reconstructor->_reconstructed.GetImageAttributes());
@@ -3857,7 +3823,7 @@ public:
   }
 };
 
-void irtkReconstruction::SuperresolutionGPU(int iter) {
+void irtkReconstructionEbb::SuperresolutionGPU(int iter) {
   if (_debug)
     cout << "Superresolution " << iter << endl;
 
@@ -3887,7 +3853,7 @@ void irtkReconstruction::SuperresolutionGPU(int iter) {
   }
 }
 
-void irtkReconstruction::ParallelAdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
+void irtkReconstructionEbb::ParallelAdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
 {
     int dx = _reconstructed.GetX();
     int dy = _reconstructed.GetY();
@@ -3945,7 +3911,7 @@ void irtkReconstruction::ParallelAdaptiveRegularization2(vector<irtkRealImage>& 
     }
 }
 
-void irtkReconstruction::ParallelAdaptiveRegularization1(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
+void irtkReconstructionEbb::ParallelAdaptiveRegularization1(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
 {
     int dx = _reconstructed.GetX();
     int dy = _reconstructed.GetY();
@@ -3972,7 +3938,7 @@ void irtkReconstruction::ParallelAdaptiveRegularization1(vector<irtkRealImage>& 
     }
 }
  
-void irtkReconstruction::AdaptiveRegularization(int iter, irtkRealImage& original)
+void irtkReconstructionEbb::AdaptiveRegularization(int iter, irtkRealImage& original)
 {
     vector<double> factor(13, 0);
     for (int i = 0; i < 13; i++) {
@@ -3995,73 +3961,7 @@ void irtkReconstruction::AdaptiveRegularization(int iter, irtkRealImage& origina
     }
 }
 
-void irtkReconstruction::Superresolution(int iter) {
-    /********
-  if (_debug)
-    cout << "Superresolution " << iter << endl;
-
-  int i, j, k;
-  irtkRealImage addon, original;
-
-  // Remember current reconstruction for edge-preserving smoothing
-  original = _reconstructed;
-
-  ParallelSuperresolution parallelSuperresolution(this);
-  parallelSuperresolution();
-  addon = parallelSuperresolution.addon;
-  _confidence_map = parallelSuperresolution.confidence_map;
-  //_confidence4mask = _confidence_map;
-
-  if (_debug) {
-    char buffer[256];
-    sprintf(buffer, "confidence-map%i.nii.gz", iter);
-    _confidence_map.Write(buffer);
-    sprintf(buffer, "addon%i.nii.gz", iter);
-    addon.Write(buffer);
-  }
-
-  if (!_adaptive)
-    for (i = 0; i < addon.GetX(); i++)
-      for (j = 0; j < addon.GetY(); j++)
-        for (k = 0; k < addon.GetZ(); k++)
-          if (_confidence_map(i, j, k) > 0) {
-            // ISSUES if _confidence_map(i, j, k) is too small leading
-            // to bright pixels
-            addon(i, j, k) /= _confidence_map(i, j, k);
-            // this is to revert to normal (non-adaptive) regularisation
-            _confidence_map(i, j, k) = 1;
-          }
-
-  _reconstructed += addon * _alpha; //_average_volume_weight;
-
-  // bound the intensities
-  for (i = 0; i < _reconstructed.GetX(); i++)
-    for (j = 0; j < _reconstructed.GetY(); j++)
-      for (k = 0; k < _reconstructed.GetZ(); k++) {
-        if (_reconstructed(i, j, k) < _min_intensity * 0.9)
-          _reconstructed(i, j, k) = _min_intensity * 0.9;
-        if (_reconstructed(i, j, k) > _max_intensity * 1.1)
-          _reconstructed(i, j, k) = _max_intensity * 1.1;
-      }
-
-  // Smooth the reconstructed image
-  AdaptiveRegularization(iter, original);
-  
-  // Remove the bias in the reconstructed volume compared to previous iteration
-  if (_global_bias_correction)
-    BiasCorrectVolume(original);
-
-  if (_debugGPU) {
-    char buffer[256];
-    sprintf(buffer, "addonCPU%i.nii", iter - 1);
-    addon.Write(buffer);
-
-    sprintf(buffer, "cmapCPU%i.nii", iter - 1);
-    _confidence_map.Write(buffer);
-  }
-
-//  std::printf("_adaptive = %d\naddon = %f\n_confidence_map = %f\n_reconstructed = %f\n_mask = %f\n\n", _adaptive, sumOneImage(addon), sumOneImage(_confidence_map), sumOneImage(_reconstructed), sumOneImage(_mask));
-*/
+void irtkReconstructionEbb::Superresolution(int iter) {
 
         int i, j, k;
     irtkRealImage addon, original;
@@ -4155,7 +4055,7 @@ void irtkReconstruction::Superresolution(int iter) {
 }
 
 class ParallelMStep {
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
 
 public:
   double sigma;
@@ -4234,7 +4134,7 @@ public:
     num += y.num;
   }
 
-  ParallelMStep(irtkReconstruction *reconstructor)
+  ParallelMStep(irtkReconstructionEbb *reconstructor)
       : reconstructor(reconstructor) {
     sigma = 0;
     mix = 0;
@@ -4252,7 +4152,7 @@ public:
   }
 };
 
-void irtkReconstruction::MStepGPU(int iter) {
+void irtkReconstructionEbb::MStepGPU(int iter) {
   // reconstructionGPU->MStep(iter, _step, _sigma_gpu, _mix_gpu, _m_gpu);
   std::cout.precision(10);
   if (_debug || _debugGPU) {
@@ -4262,45 +4162,7 @@ void irtkReconstruction::MStepGPU(int iter) {
   }
 }
 
-void irtkReconstruction::MStep(int iter) {
-/********
-  if (_debug)
-    cout << "MStep" << endl;
-
-  //std::cout << "_sigma_cpu " << _sigma_cpu << "_step " << _step << " _mix_cpu " << _mix_cpu << " _m_cpu " << _m_cpu << std::endl;
-
-  ParallelMStep parallelMStep(this);
-  parallelMStep();
-  double sigma = parallelMStep.sigma;
-  double mix = parallelMStep.mix;
-  double num = parallelMStep.num;
-  double min = parallelMStep.min;
-  double max = parallelMStep.max;
-  //printf("CPU sigma %f, mix %f, num %f, min_ %f, max_ %f\n", sigma, mix, num, min, max);
-  //std::cout.precision(6);
-  //std::cout << " CPU sigma " << sigma << " mix " << mix << " num " << num
-  //          << " min_ " << min << " max_ " << max << std::endl;
-  // Calculate sigma and mix
-  if (mix > 0) {
-    _sigma_cpu = sigma / mix;
-  } else {
-    cerr << "Something went wrong: sigma=" << sigma << " mix=" << mix << endl;
-    exit(1);
-  }
-  if (_sigma_cpu < _step * _step / 6.28)
-    _sigma_cpu = _step * _step / 6.28;
-  if (iter > 1)
-    _mix_cpu = mix / num;
-
-  // Calculate m
-  _m_cpu = 1 / (max - min);
-
-  if (_debug || _debugGPU) {
-    cout << "Voxel-wise robust statistics parameters CPU: ";
-    cout << "sigma = " << sqrt(_sigma_cpu) << " mix = " << _mix_cpu << " ";
-    cout << " m = " << _m_cpu << endl;
-  }
-*/
+void irtkReconstructionEbb::MStep(int iter) {
     double sigma = 0;
     double mix = 0;
     double num = 0;
@@ -4369,169 +4231,8 @@ void irtkReconstruction::MStep(int iter) {
     _m_cpu = 1 / (max - min);
 }
 
-/*class ParallelAdaptiveRegularization1 {
-  irtkReconstruction *reconstructor;
-  vector<irtkRealImage> &b;
-  vector<double> &factor;
-  irtkRealImage &original;
 
-public:
-  ParallelAdaptiveRegularization1(irtkReconstruction *_reconstructor,
-                                  vector<irtkRealImage> &_b,
-                                  vector<double> &_factor,
-                                  irtkRealImage &_original)
-      : reconstructor(_reconstructor), b(_b), factor(_factor),
-        original(_original) {}
-
-  void operator()(const blocked_range<size_t> &r) const {
-    int dx = reconstructor->_reconstructed.GetX();
-    int dy = reconstructor->_reconstructed.GetY();
-    int dz = reconstructor->_reconstructed.GetZ();
-    for (size_t i = r.begin(); i != r.end(); ++i) {
-      // b[i] = reconstructor->_reconstructed;
-      // b[i].Initialize( reconstructor->_reconstructed.GetImageAttributes() );
-
-      int x, y, z, xx, yy, zz;
-      double diff;
-      for (x = 0; x < dx; x++)
-        for (y = 0; y < dy; y++)
-          for (z = 0; z < dz; z++) {
-            xx = x + reconstructor->_directions[i][0];
-            yy = y + reconstructor->_directions[i][1];
-            zz = z + reconstructor->_directions[i][2];
-            if ((xx >= 0) && (xx < dx) && (yy >= 0) && (yy < dy) && (zz >= 0) &&
-                (zz < dz) && (reconstructor->_confidence_map(x, y, z) > 0) &&
-                (reconstructor->_confidence_map(xx, yy, zz) > 0)) {
-              diff = (original(xx, yy, zz) - original(x, y, z)) *
-                     sqrt(factor[i]) / reconstructor->_delta;
-              b[i](x, y, z) = factor[i] / sqrt(1 + diff * diff);
-
-            } else
-              b[i](x, y, z) = 0;
-          }
-    }
-  }
-
-  // execute
-  void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, 13), *this);
-    init.terminate();
-  }
-};
-
-class ParallelAdaptiveRegularization2 {
-  irtkReconstruction *reconstructor;
-  vector<irtkRealImage> &b;
-  vector<double> &factor;
-  irtkRealImage &original;
-
-public:
-  ParallelAdaptiveRegularization2(irtkReconstruction *_reconstructor,
-                                  vector<irtkRealImage> &_b,
-                                  vector<double> &_factor,
-                                  irtkRealImage &_original)
-      : reconstructor(_reconstructor), b(_b), factor(_factor),
-        original(_original) {}
-
-  void operator()(const blocked_range<size_t> &r) const {
-    int dx = reconstructor->_reconstructed.GetX();
-    int dy = reconstructor->_reconstructed.GetY();
-    int dz = reconstructor->_reconstructed.GetZ();
-    for (size_t x = r.begin(); x != r.end(); ++x) {
-      int xx, yy, zz;
-      for (int y = 0; y < dy; y++)
-        for (int z = 0; z < dz; z++) {
-          double val = 0;
-          double valW = 0;
-          double sum = 0;
-          for (int i = 0; i < 13; i++) {
-            xx = x + reconstructor->_directions[i][0];
-            yy = y + reconstructor->_directions[i][1];
-            zz = z + reconstructor->_directions[i][2];
-            if ((xx >= 0) && (xx < dx) && (yy >= 0) && (yy < dy) && (zz >= 0) &&
-                (zz < dz)) {
-              val += b[i](x, y, z) * original(xx, yy, zz) *
-                     reconstructor->_confidence_map(xx, yy, zz);
-              valW +=
-                  b[i](x, y, z) * reconstructor->_confidence_map(xx, yy, zz);
-              sum += b[i](x, y, z);
-            }
-          }
-
-          for (int i = 0; i < 13; i++) {
-            xx = x - reconstructor->_directions[i][0];
-            yy = y - reconstructor->_directions[i][1];
-            zz = z - reconstructor->_directions[i][2];
-            if ((xx >= 0) && (xx < dx) && (yy >= 0) && (yy < dy) && (zz >= 0) &&
-                (zz < dz)) {
-              val += b[i](xx, yy, zz) * original(xx, yy, zz) *
-                     reconstructor->_confidence_map(xx, yy, zz);
-              valW +=
-                  b[i](xx, yy, zz) * reconstructor->_confidence_map(xx, yy, zz);
-              sum += b[i](xx, yy, zz);
-            }
-          }
-
-          val -=
-              sum * original(x, y, z) * reconstructor->_confidence_map(x, y, z);
-          valW -= sum * reconstructor->_confidence_map(x, y, z);
-          val = original(x, y, z) * reconstructor->_confidence_map(x, y, z) +
-                reconstructor->_alpha * reconstructor->_lambda /
-                    (reconstructor->_delta * reconstructor->_delta) * val;
-          valW = reconstructor->_confidence_map(x, y, z) +
-                 reconstructor->_alpha * reconstructor->_lambda /
-                     (reconstructor->_delta * reconstructor->_delta) * valW;
-
-          if (valW > 0) {
-            reconstructor->_reconstructed(x, y, z) = val / valW;
-          } else
-            reconstructor->_reconstructed(x, y, z) = 0;
-        }
-    }
-  }
-
-  // execute
-  void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, reconstructor->_reconstructed.GetX()),
-                 *this);
-    init.terminate();
-  }
-};
-
-void irtkReconstruction::AdaptiveRegularization(int iter,
-                                                irtkRealImage &original) {
-  if (_debug)
-    cout << "AdaptiveRegularization" << endl;
-
-  vector<double> factor(13, 0);
-  for (int i = 0; i < 13; i++) {
-    for (int j = 0; j < 3; j++)
-      factor[i] += fabs(double(_directions[i][j]));
-    factor[i] = 1 / factor[i];
-  }
-
-  vector<irtkRealImage> b; //(13);
-  for (int i = 0; i < 13; i++)
-    b.push_back(_reconstructed);
-
-  ParallelAdaptiveRegularization1 parallelAdaptiveRegularization1(
-      this, b, factor, original);
-  parallelAdaptiveRegularization1();
-
-  irtkRealImage original2 = _reconstructed;
-  ParallelAdaptiveRegularization2 parallelAdaptiveRegularization2(
-      this, b, factor, original2);
-  parallelAdaptiveRegularization2();
-
-  if (_alpha * _lambda / (_delta * _delta) > 0.068) {
-    cerr << "Warning: regularization might not have smoothing effect! Ensure "
-            "that alpha*lambda/delta^2 is below 0.068." << endl;
-  }
-}*/
-
-void irtkReconstruction::BiasCorrectVolume(irtkRealImage &original) {
+void irtkReconstructionEbb::BiasCorrectVolume(irtkRealImage &original) {
   // remove low-frequancy component in the reconstructed image which might have
   // accured due to overfitting of the biasfield
   irtkRealImage residual = _reconstructed;
@@ -4601,7 +4302,7 @@ void irtkReconstruction::BiasCorrectVolume(irtkRealImage &original) {
   //_reconstructed.Write("super-biascor.nii.gz");
 }
 
-void irtkReconstruction::EvaluateGPU(int iter) {
+void irtkReconstructionEbb::EvaluateGPU(int iter) {
   cout << "Iteration " << iter << ": " << endl;
 
   cout << "Included slices GPU: ";
@@ -4636,7 +4337,7 @@ void irtkReconstruction::EvaluateGPU(int iter) {
   cout << endl << "Total GPU: " << sum << endl;
 }
 
-void irtkReconstruction::Evaluate(int iter) {
+void irtkReconstructionEbb::Evaluate(int iter) {
     //cout << "Iteration " << iter << ": " << endl;
 
 //  cout << "Included slices CPU: ";
@@ -4672,7 +4373,7 @@ void irtkReconstruction::Evaluate(int iter) {
 }
 
 class ParallelNormaliseBias {
-  irtkReconstruction *reconstructor;
+  irtkReconstructionEbb *reconstructor;
 
 public:
   irtkRealImage bias;
@@ -4729,7 +4430,7 @@ public:
 
   void join(const ParallelNormaliseBias &y) { bias += y.bias; }
 
-  ParallelNormaliseBias(irtkReconstruction *reconstructor)
+  ParallelNormaliseBias(irtkReconstructionEbb *reconstructor)
       : reconstructor(reconstructor) {
     bias.Initialize(reconstructor->_reconstructed.GetImageAttributes());
     bias = 0;
@@ -4744,64 +4445,9 @@ public:
   }
 };
 
-void irtkReconstruction::NormaliseBiasGPU(int iter) {}
+void irtkReconstructionEbb::NormaliseBiasGPU(int iter) {}
 
-void irtkReconstruction::NormaliseBias(int iter) {
-    /*
-  if (_debug)
-    cout << "Normalise Bias ... ";
-
-  ParallelNormaliseBias parallelNormaliseBias(this);
-  parallelNormaliseBias();
-  irtkRealImage bias = parallelNormaliseBias.bias;
-
-  // normalize the volume by proportion of contributing slice voxels for each
-  // volume voxel
-  bias /= _volume_weights;
-
-  if (_debug)
-    cout << "done." << endl;
-
-  MaskImage(bias, 0);
-  irtkRealImage m = _mask;
-  irtkGaussianBlurring<irtkRealPixel> gb(_sigma_bias);
-  gb.SetInput(&bias);
-  gb.SetOutput(&bias);
-  gb.Run();
-  gb.SetInput(&m);
-  gb.SetOutput(&m);
-  gb.Run();
-  bias /= m;
-
-  if (_debugGPU) {
-    char buffer_[256];
-    sprintf(buffer_, "smaskCPU%i.nii", iter);
-    m.Write(buffer_);
-  }
-
-  if (_debug) {
-    char buffer[256];
-    sprintf(buffer, "averagebias%i.nii.gz", iter);
-    bias.Write(buffer);
-  }
-
-  irtkRealPixel *pi, *pb;
-  pi = _reconstructed.GetPointerToVoxels();
-  pb = bias.GetPointerToVoxels();
-  for (int i = 0; i < _reconstructed.GetNumberOfVoxels(); i++) {
-    if (*pi != -1)
-      *pi /= exp(-(*pb));
-    pi++;
-    pb++;
-  }
-  if (_debugGPU) {
-    char buffer[256];
-    sprintf(buffer, "nbiasCPU%i.nii", iter);
-    bias.Write(buffer);
-  }
-    */
-
-    
+void irtkReconstructionEbb::NormaliseBias(int iter) {
     irtkRealImage bias;
     bias.Initialize(_reconstructed.GetImageAttributes());
     bias = 0;
@@ -4869,9 +4515,7 @@ void irtkReconstruction::NormaliseBias(int iter) {
     }
 }
 
-/* Set/Get/Save operations */
-
-void irtkReconstruction::ReadTransformation(char *folder) {
+void irtkReconstructionEbb::ReadTransformation(char *folder) {
   int n = _slices.size();
   char name[256];
   char path[256];
@@ -4903,59 +4547,13 @@ void irtkReconstruction::ReadTransformation(char *folder) {
   }
 }
 
-void irtkReconstruction::replaceSlices(string folder) {
-  // replaces slices with already transformed slices
-  // renders every stack operation before useless -- TODO
 
-  // stack Id and transformations are preserved
-  // The slices have to be in the correct order in the folder!
-
-  // get file list from boost
-/*  path p(folder);
-  if (exists(p)) {
-    vector<path> files;
-    copy(directory_iterator(p), directory_iterator(), back_inserter(files));
-
-    vector<irtkRealImage> newSlices;
-    vector<double> thickness;
-    vector<int> stackId;
-    vector<irtkRigidTransformation> transforms;
-
-    // TODO ITK IRTK orientation mismatch?
-    std::cout << "replacing every slice!!! " << std::endl;
-    for (int i = 0; i < files.size(); i++) {
-      // std::cout << files[i] << std::endl;
-      irtkRealImage newSlice;
-      newSlice.Read(files[i].string().c_str());
-      // newSlice.Write(files[i].string().c_str());
-      // newSlice.Read(files[i].string().c_str());
-      // double axis[3];
-
-      newSlices.push_back(newSlice);
-      stackId.push_back(0); // TODO
-
-      thickness.push_back(4.0);
-      irtkTransformation *transformation = new irtkRigidTransformation;
-      irtkRigidTransformation *rigidTransf =
-          dynamic_cast<irtkRigidTransformation *>(transformation);
-      // rigidTransf->Print();
-      transforms.push_back(*rigidTransf);
-      delete rigidTransf;
-    }
-
-    SetSlicesAndTransformations(newSlices, transforms, stackId, thickness);
-
-  } else {
-    cout << p << " does not exist\n";
-    }*/
-}
-
-void irtkReconstruction::SetReconstructed(irtkRealImage &reconstructed) {
+void irtkReconstructionEbb::SetReconstructed(irtkRealImage &reconstructed) {
   _reconstructed = reconstructed;
   _template_created = true;
 }
 
-void irtkReconstruction::SetTransformations(
+void irtkReconstructionEbb::SetTransformations(
     vector<irtkRigidTransformation> &transformations) {
   _transformations.clear();
   _transformations_gpu.clear();
@@ -4965,7 +4563,7 @@ void irtkReconstruction::SetTransformations(
   }
 }
 
-void irtkReconstruction::SaveBiasFields() {
+void irtkReconstructionEbb::SaveBiasFields() {
   char buffer[256];
   for (unsigned int inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
     sprintf(buffer, "bias%i.nii.gz", inputIndex);
@@ -4973,11 +4571,11 @@ void irtkReconstruction::SaveBiasFields() {
   }
 }
 
-void irtkReconstruction::SaveConfidenceMap() {
+void irtkReconstructionEbb::SaveConfidenceMap() {
   _confidence_map.Write("confidence-map.nii.gz");
 }
 
-void irtkReconstruction::SaveSlices() {
+void irtkReconstructionEbb::SaveSlices() {
   char buffer[256];
   for (unsigned int inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
     sprintf(buffer, "slice%i.nii.gz", inputIndex);
@@ -4985,7 +4583,7 @@ void irtkReconstruction::SaveSlices() {
   }
 }
 
-void irtkReconstruction::SaveWeights() {
+void irtkReconstructionEbb::SaveWeights() {
   char buffer[256];
   for (unsigned int inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
     sprintf(buffer, "weights%i.nii.gz", inputIndex);
@@ -4993,7 +4591,7 @@ void irtkReconstruction::SaveWeights() {
   }
 }
 
-void irtkReconstruction::SaveTransformations() {
+void irtkReconstructionEbb::SaveTransformations() {
   char buffer[256];
   for (unsigned int inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
     sprintf(buffer, "transformation%i.dof", inputIndex);
@@ -5003,7 +4601,7 @@ void irtkReconstruction::SaveTransformations() {
   }
 }
 
-void irtkReconstruction::GetTransformations(
+void irtkReconstructionEbb::GetTransformations(
     vector<irtkRigidTransformation> &transformations) {
   transformations.clear();
   for (unsigned int inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
@@ -5011,13 +4609,13 @@ void irtkReconstruction::GetTransformations(
   }
 }
 
-void irtkReconstruction::GetSlices(vector<irtkRealImage> &slices) {
+void irtkReconstructionEbb::GetSlices(vector<irtkRealImage> &slices) {
   slices.clear();
   for (unsigned int i = 0; i < _slices.size(); i++)
     slices.push_back(_slices[i]);
 }
 
-void irtkReconstruction::SlicesInfo(const char *filename) {
+void irtkReconstructionEbb::SlicesInfo(const char *filename) {
   ofstream info;
   info.open(filename);
 
@@ -5065,10 +4663,8 @@ void irtkReconstruction::SlicesInfo(const char *filename) {
   info.close();
 }
 
-/* end Set/Get/Save operations */
 
-/* Package specific functions */
-void irtkReconstruction::SplitImage(irtkRealImage image, int packages,
+void irtkReconstructionEbb::SplitImage(irtkRealImage image, int packages,
                                     vector<irtkRealImage> &stacks) {
   irtkImageAttributes attr = image.GetImageAttributes();
 
@@ -5135,7 +4731,7 @@ void irtkReconstruction::SplitImage(irtkRealImage image, int packages,
   cout << "done." << endl;
 }
 
-void irtkReconstruction::SplitImageEvenOdd(irtkRealImage image, int packages,
+void irtkReconstructionEbb::SplitImageEvenOdd(irtkRealImage image, int packages,
                                            vector<irtkRealImage> &stacks) {
   vector<irtkRealImage> packs;
   vector<irtkRealImage> packs2;
@@ -5154,7 +4750,7 @@ void irtkReconstruction::SplitImageEvenOdd(irtkRealImage image, int packages,
   cout << "done." << endl;
 }
 
-void irtkReconstruction::SplitImageEvenOddHalf(irtkRealImage image,
+void irtkReconstructionEbb::SplitImageEvenOddHalf(irtkRealImage image,
                                                int packages,
                                                vector<irtkRealImage> &stacks,
                                                int iter) {
@@ -5175,7 +4771,7 @@ void irtkReconstruction::SplitImageEvenOddHalf(irtkRealImage image,
   }
 }
 
-void irtkReconstruction::HalfImage(irtkRealImage image,
+void irtkReconstructionEbb::HalfImage(irtkRealImage image,
                                    vector<irtkRealImage> &stacks) {
   irtkRealImage tmp;
   irtkImageAttributes attr = image.GetImageAttributes();
@@ -5191,7 +4787,7 @@ void irtkReconstruction::HalfImage(irtkRealImage image,
     stacks.push_back(image);
 }
 
-void irtkReconstruction::PackageToVolume(vector<irtkRealImage> &stacks,
+void irtkReconstructionEbb::PackageToVolume(vector<irtkRealImage> &stacks,
                                          vector<int> &pack_num, bool evenodd,
                                          bool half, int half_iter) {
   irtkImageRigidRegistrationWithPadding rigidregistration;
@@ -5307,11 +4903,9 @@ void irtkReconstruction::PackageToVolume(vector<irtkRealImage> &stacks,
   }
 }
 
-/* end Package specific functions */
 
-/* Utility functions */
 
-void irtkReconstruction::CropImage(irtkRealImage &image, irtkRealImage &mask) {
+void irtkReconstructionEbb::CropImage(irtkRealImage &image, irtkRealImage &mask) {
   // Crops the image according to the mask
 
   int i, j, k;
@@ -5413,7 +5007,7 @@ void irtkReconstruction::CropImage(irtkRealImage &image, irtkRealImage &mask) {
   image = image.GetRegion(x1, y1, z1, x2 + 1, y2 + 1, z2 + 1);
 }
 
-void irtkReconstruction::InvertStackTransformations(
+void irtkReconstructionEbb::InvertStackTransformations(
     vector<irtkRigidTransformation> &stack_transformations) {
   // for each stack
   for (unsigned int i = 0; i < stack_transformations.size(); i++) {
@@ -5423,11 +5017,11 @@ void irtkReconstruction::InvertStackTransformations(
   }
 }
 
-void irtkReconstruction::MaskVolumeGPU() {
+void irtkReconstructionEbb::MaskVolumeGPU() {
   // reconstructionGPU->maskVolume();
 }
 
-void irtkReconstruction::MaskVolume() {
+void irtkReconstructionEbb::MaskVolume() {
   irtkRealPixel *pr = _reconstructed.GetPointerToVoxels();
   irtkRealPixel *pm = _mask.GetPointerToVoxels();
   for (int i = 0; i < _reconstructed.GetNumberOfVoxels(); i++) {
@@ -5438,7 +5032,7 @@ void irtkReconstruction::MaskVolume() {
   }
 }
 
-void irtkReconstruction::MaskImage(irtkRealImage &image, double padding) {
+void irtkReconstructionEbb::MaskImage(irtkRealImage &image, double padding) {
   if (image.GetNumberOfVoxels() != _mask.GetNumberOfVoxels()) {
     cerr << "Cannot mask the image - different dimensions" << endl;
     exit(1);
@@ -5454,7 +5048,7 @@ void irtkReconstruction::MaskImage(irtkRealImage &image, double padding) {
 }
 
 /// Like PutMinMax but ignoring negative values (mask)
-void irtkReconstruction::Rescale(irtkRealImage &img, double max) {
+void irtkReconstructionEbb::Rescale(irtkRealImage &img, double max) {
   int i, n;
   irtkRealPixel *ptr, min_val, max_val;
 
@@ -5467,6 +5061,6 @@ void irtkReconstruction::Rescale(irtkRealImage &img, double max) {
     if (ptr[i] > 0)
       ptr[i] = double(ptr[i]) / double(max_val) * max;
 }
-/* end Utility functions */
+
 
 #pragma GCC diagnostic pop
