@@ -218,7 +218,9 @@ public:
 
   void ReceiveMessage(ebbrt::Messenger::NetworkId nid,
                       std::unique_ptr<ebbrt::IOBuf>&& buffer);
-  void runRecon();
+  void SendRecon();
+  void RunRecon(int iterations, double delta, double lastIterLambda, int rec_iterations_first, int rec_iterations_last, bool intensity_matching, double lambda, int levels);
+  
   void Print(ebbrt::Messenger::NetworkId nid, const char* str);
 
   //Structures to store the matrix of transformation between volume and slices
@@ -353,13 +355,10 @@ public:
 
   ///Calculate slice-dependent scale
   void Scale();
-  void ScaleGPU();
 
   ///Calculate slice-dependent bias fields
   void Bias();
-  void BiasGPU();
   void NormaliseBias(int iter);
-  void NormaliseBiasGPU(int iter);
   
   
   ///Superresolution
@@ -420,6 +419,8 @@ public:
   ///Set smoothing parameters
   inline void SetSmoothingParameters(double delta, double lambda);
 
+  inline float SumRecon();
+
   ///use in-plane sinc like PSF
   inline void useSINCPSF();
 
@@ -452,7 +453,6 @@ public:
 
   ///Write included/excluded/outside slices
   void Evaluate(int iter);
-  void EvaluateGPU(int iter);
 
   /// Read Transformations
   void ReadTransformation(char* folder);
@@ -502,48 +502,13 @@ public:
   ///sync GPU with data
   //TODO distribute in documented functions above
   irtkRealImage externalRegistrationTargetImage;
-
-  void SyncGPU();
-  //Matrix4 toMatrix4(irtkMatrix mat);
-  //irtkMatrix fromMatrix4(Matrix4 mat);
-  std::vector<irtkMatrix> UpdateGPUTranformationMatrices();
   void generatePSFVolume();
-  void GaussianReconstructionGPU();
-  void EStepGPU();
-  void InitializeRobustStatisticsGPU();
-  void SimulateSlicesGPU();
-  void InitializeEMValuesGPU();
-  void SuperresolutionGPU(int iter);
-  irtkRealImage GetReconstructedGPU();
-  void MStepGPU(int iter);
-  void MaskVolumeGPU();
-  void SyncCPU();
-  //void updateStackSizes(std::vector<uint3> stack_sizes_);
-  void ScaleVolumeGPU();
-  void RestoreSliceIntensitiesGPU();
-  void InitializeEMGPU();
-  void SliceToVolumeRegistrationGPU();
   static void ResetOrigin(irtkRealImage &image, irtkRigidTransformation& transformation);
 
-  void Set_debugGPU(bool val);
-  void testCPURegGPU();
   void PrepareRegistrationSlices();
-  friend class ParallelStackRegistrations;
-  friend class ParallelSliceToVolumeRegistration;
-  friend class ParallelCoeffInit;
-  friend class ParallelSuperresolution;
-  friend class ParallelMStep;
-  friend class ParallelEStep;
-  friend class ParallelBias;
-  friend class ParallelScale;
-  friend class ParallelNormaliseBias;
-  friend class ParallelSimulateSlices;
   friend class ParallelAverage;
   friend class ParallelSliceAverage;
-  friend class ParallelAdaptiveRegularization1;
-  friend class ParallelAdaptiveRegularization2;
-  friend class ParallelSliceToVolumeRegistrationGPU;
-
+  friend class ParallelStackRegistrations;
 };
 
 inline double irtkReconstructionEbb::G(double x, double s)
@@ -639,5 +604,15 @@ inline void irtkReconstructionEbb::SetForceExcludedSlices(vector<int>& force_exc
   _force_excluded = force_excluded;
 }
 
+inline float irtkReconstructionEbb::SumRecon() {
+  float sum = 0.0;
+  irtkRealPixel *ap = _reconstructed.GetPointerToVoxels();
+
+  for (int j = 0; j < _reconstructed.GetNumberOfVoxels(); j++) {
+    sum += *ap;
+    ap++;
+  }
+  return sum;
+}
 
 #endif

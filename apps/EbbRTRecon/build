@@ -1,0 +1,1 @@
+make -j CPPFLAGS='-D__EBB__ -D__TEST__ -D__ITERS__=1' EBBRT_APP_CPPFLAGS='-Wno-unused-local-typedefs -Wno-unused-variable -Wno-deprecated -D__ITERS__=9'

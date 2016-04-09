@@ -14,7 +14,7 @@ EBBRT_CONFIG := $(abspath $(MYDIR)../src/ebbrtcfg.h)
 EBBRT_APP_INCLUDES := -I $(abspath $(MYDIR)../ext)
 EBBRT_APP_LINK := -L $(MYDIR)lib -lgsl -lgslcblas -lboost_serialization -lboost_wserialization -lboost_system
 
-EBBRT_APP_CPPFLAGS = -Wno-unused-local-typedefs -Wno-unused-variable -Wno-deprecated
+#EBBRT_APP_CPPFLAGS := -Wno-unused-local-typedefs -Wno-unused-variable -Wno-deprecated -D__ITERS__=9
 
 include $(abspath ../../../irtk.mk)
 include $(abspath $(EBBRT_SRCDIR)/apps/ebbrtbaremetal.mk)

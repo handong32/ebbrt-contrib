@@ -32,22 +32,6 @@
 #include <ebbrt/Runtime.h>
 #include <ebbrt/Clock.h>
 
-enum TTYPE {
-  INITIALIZEEMVALUES,
-  COEFFINIT,
-  GAUSSIANRECONSTRUCTION,
-  SIMULATESLICES,
-  INITIALIZEROBUSTSTATISTICS,
-  ESTEP,
-  SCALE,
-  SUPERRESOLUTION,
-  MSTEP,
-  MASKVOLUME,
-  EVALUATE,
-  SLICETOVOLUMEREGISTRATION,
-  RESTORESLICE
-};
-
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wsign-compare"
@@ -67,17 +51,6 @@ const std::string currentDateTime() {
   return buf;
 }
 
-float sumOneImage(irtkRealImage a) {
-  float sum = 0.0;
-  irtkRealPixel *ap = a.GetPointerToVoxels();
-
-  for (int j = 0; j < a.GetNumberOfVoxels(); j++) {
-    sum += *ap;
-    ap++;
-  }
-  return sum;
-}
-
 int main(int argc, char **argv) {
     Runtime runtime;
     Context c(runtime);
@@ -87,7 +60,6 @@ int main(int argc, char **argv) {
   gettimeofday(&totstart, NULL);
 
   int i, ok;
-  float timers[13] = { 0 };
   char buffer[256];
   irtkRealImage stack;
 
@@ -128,8 +100,8 @@ int main(int argc, char **argv) {
   string sfolder;
   // flag to swich the intensity matching on and off
   bool intensity_matching = true;
-  unsigned int rec_iterations_first = 4;
-  unsigned int rec_iterations_last = 13;
+  int rec_iterations_first = 4;
+  int rec_iterations_last = 13;
 
   // number of threads
   int numThreads;
@@ -225,10 +197,10 @@ int main(int argc, char **argv) {
         "debug_gpu", po::bool_switch(&debug_gpu)->default_value(false),
         " Debug only GPU results.")(
         "rec_iterations_first",
-        po::value<unsigned int>(&rec_iterations_first)->default_value(4),
+        po::value<int>(&rec_iterations_first)->default_value(4),
         " Set number of superresolution iterations")(
         "rec_iterations_last",
-        po::value<unsigned int>(&rec_iterations_last)->default_value(13),
+        po::value<int>(&rec_iterations_last)->default_value(13),
         " Set number of superresolution iterations for the last iteration")(
         "num_stacks_tuner",
         po::value<unsigned int>(&num_input_stacks_tuner)->default_value(0),
@@ -544,262 +516,18 @@ int main(int argc, char **argv) {
     reconstruction->ReadTransformation((char *)tfolder.c_str());
 
   // Initialise data structures for EM
-  if (useCPU) {
-    reconstruction->InitializeEM();
-  } else {
-    reconstruction->InitializeEMGPU();
-  }
+  reconstruction->InitializeEM();
 
   std::cout << "*************** packages.size() " << packages.size()
             << std::endl;
 
   iterations = __ITERS__;
-  std::printf("lambda = %f delta = %f intensity_matching = %d useCPU = %d disableBiasCorr = %d sigma = %f global_bias_correction = %d lastIterLambda = %f iterations = %d\n", lambda, delta, intensity_matching, useCPU, disableBiasCorr, sigma, global_bias_correction, lastIterLambda, iterations);
+  std::printf("lambda = %f delta = %f intensity_matching = %d useCPU = %d disableBiasCorr = %d sigma = %f global_bias_correction = %d lastIterLambda = %f iterations = %d levels = %d\n", lambda, delta, intensity_matching, useCPU, disableBiasCorr, sigma, global_bias_correction, lastIterLambda, iterations, levels);
 
 #ifndef __EBB__
-  struct timeval tstart, tend;
-  float sumCompute = 0.0;
-  float tempTime = 0.0;
-  gettimeofday(&tstart, NULL);
-
-  struct timeval lstart, lend;  
-
-  for (int iter = 0; iter < iterations; iter++) {
-    // perform slice-to-volume registrations - skip the first iteration
-    if (iter > 0) {
-      gettimeofday(&lstart, NULL);
-      reconstruction->SliceToVolumeRegistration();
-      gettimeofday(&lend, NULL);
-      tempTime = (lend.tv_sec - lstart.tv_sec) +
-                 ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-      timers[SLICETOVOLUMEREGISTRATION] += tempTime;
-      sumCompute += tempTime;
-    }
-
-    if (iter == (iterations - 1)) {
-      reconstruction->SetSmoothingParameters(delta, lastIterLambda);
-    } else {
-      double l = lambda;
-      for (i = 0; i < levels; i++) {
-        if (iter == iterations * (levels - i - 1) / levels) {
-          reconstruction->SetSmoothingParameters(delta, l);
-        }
-        l *= 2;
-      }
-    }
-
-    // Use faster reconstruction during iterations and slower for final
-    // reconstruction
-    if (iter < (iterations - 1)) {
-      reconstruction->SpeedupOn();
-    } else {
-      reconstruction->SpeedupOff();
-    }
-
-    // Initialise values of weights, scales and bias fields
-    gettimeofday(&lstart, NULL);
-    reconstruction->InitializeEMValues();
-    gettimeofday(&lend, NULL);
-    tempTime = (lend.tv_sec - lstart.tv_sec) +
-               ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-    timers[INITIALIZEEMVALUES] += tempTime;
-    sumCompute += tempTime;
-
-    // Calculate matrix of transformation between voxels of slices and volume
-    gettimeofday(&lstart, NULL);
-    reconstruction->CoeffInit();
-    gettimeofday(&lend, NULL);
-    tempTime = (lend.tv_sec - lstart.tv_sec) +
-               ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-    timers[COEFFINIT] += tempTime;
-    sumCompute += tempTime;
-
-    // Initialize reconstructed image with Gaussian weighted reconstruction
-    gettimeofday(&lstart, NULL);
-    reconstruction->GaussianReconstruction();
-    gettimeofday(&lend, NULL);
-    tempTime = (lend.tv_sec - lstart.tv_sec) +
-               ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-    timers[GAUSSIANRECONSTRUCTION] += tempTime;
-    sumCompute += tempTime;
-
-    // Simulate slices (needs to be done after Gaussian reconstruction)
-    gettimeofday(&lstart, NULL);
-    reconstruction->SimulateSlices();
-    gettimeofday(&lend, NULL);
-    tempTime = (lend.tv_sec - lstart.tv_sec) +
-               ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-    timers[SIMULATESLICES] += tempTime;
-    sumCompute += tempTime;
-
-    gettimeofday(&lstart, NULL);
-    reconstruction->InitializeRobustStatistics();
-    gettimeofday(&lend, NULL);
-    tempTime = (lend.tv_sec - lstart.tv_sec) +
-               ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-    timers[INITIALIZEROBUSTSTATISTICS] += tempTime;
-    sumCompute += tempTime;
-
-    gettimeofday(&lstart, NULL);
-    reconstruction->EStep();
-    gettimeofday(&lend, NULL);
-    tempTime = (lend.tv_sec - lstart.tv_sec) +
-               ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-    timers[ESTEP] += tempTime;
-    sumCompute += tempTime;
-
-    // number of reconstruction iterations
-    if (iter == (iterations - 1)) {
-      rec_iterations = rec_iterations_last;
-    } else
-      rec_iterations = rec_iterations_first;
-
-    // reconstruction iterations
-    i = 0;
-    for (i = 0; i < rec_iterations; i++) {
-      if (intensity_matching) {
-        // calculate bias fields
-        if (useCPU) {
-          if (!disableBiasCorr) {
-            if (sigma > 0) {
-              gettimeofday(&lstart, NULL);
-              reconstruction->Bias();
-              gettimeofday(&lend, NULL);
-              tempTime = (lend.tv_sec - lstart.tv_sec) +
-                         ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-              std::printf("Bias: %lf seconds\n", tempTime);
-              sumCompute += tempTime;
-            }
-          }
-          gettimeofday(&lstart, NULL);
-          // calculate scales
-          reconstruction->Scale();
-          gettimeofday(&lend, NULL);
-          tempTime = (lend.tv_sec - lstart.tv_sec) +
-                     ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-	  timers[SCALE] += tempTime;
-          sumCompute += tempTime;
-        }
-      }
-
-      // MStep and update reconstructed volume
-      gettimeofday(&lstart, NULL);
-      reconstruction->Superresolution(i + 1);
-      gettimeofday(&lend, NULL);
-      tempTime = (lend.tv_sec - lstart.tv_sec) +
-                 ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-      timers[SUPERRESOLUTION] += tempTime;
-      sumCompute += tempTime;
-	    
-      if (intensity_matching) {
-        if (!disableBiasCorr) {
-          if ((sigma > 0) && (!global_bias_correction)) {
-            gettimeofday(&lstart, NULL);
-            reconstruction->NormaliseBias(i);
-            gettimeofday(&lend, NULL);
-            tempTime = (lend.tv_sec - lstart.tv_sec) +
-                       ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-            std::printf("NormaliseBias: %lf seconds\n", tempTime);
-            sumCompute += tempTime;
-          }
-        }
-      }
-
-      // Simulate slices (needs to be done
-      // after the update of the reconstructed volume)
-      gettimeofday(&lstart, NULL);
-      reconstruction->SimulateSlices();
-      gettimeofday(&lend, NULL);
-      tempTime = (lend.tv_sec - lstart.tv_sec) +
-                 ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-      timers[SIMULATESLICES] += tempTime;
-      sumCompute += tempTime;
-            
-      gettimeofday(&lstart, NULL);
-      reconstruction->MStep(i + 1);
-      gettimeofday(&lend, NULL);
-      tempTime = (lend.tv_sec - lstart.tv_sec) +
-                 ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-      timers[MSTEP] += tempTime;
-      sumCompute += tempTime;
-
-      gettimeofday(&lstart, NULL);
-      reconstruction->EStep();
-      gettimeofday(&lend, NULL);
-      tempTime = (lend.tv_sec - lstart.tv_sec) +
-                 ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-      timers[ESTEP] += tempTime;
-      sumCompute += tempTime;
-
-    } // end of reconstruction iterations
-
-    // Mask reconstructed image to ROI given by the mask
-    gettimeofday(&lstart, NULL);
-    reconstruction->MaskVolume();
-    gettimeofday(&lend, NULL);
-    tempTime = (lend.tv_sec - lstart.tv_sec) +
-               ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-    timers[MASKVOLUME] += tempTime;
-    sumCompute += tempTime;
-
-    gettimeofday(&lstart, NULL);
-    reconstruction->Evaluate(iter);
-    gettimeofday(&lend, NULL);
-    tempTime = (lend.tv_sec - lstart.tv_sec) +
-               ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-    timers[EVALUATE] += tempTime;
-    sumCompute += tempTime;
-  } // end of interleaved registration-reconstruction iterations
   
-  gettimeofday(&lstart, NULL);
-  reconstruction->RestoreSliceIntensities();
-  reconstruction->ScaleVolume();
-  gettimeofday(&lend, NULL);
-  tempTime = (lend.tv_sec - lstart.tv_sec) +
-             ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
-  timers[RESTORESLICE] += tempTime;
-  sumCompute += tempTime;
+  reconstruction->RunRecon(iterations, delta, lastIterLambda, rec_iterations_first, rec_iterations_last, intensity_matching, lambda, levels);
 
-  gettimeofday(&tend, NULL);
-
-  std::printf("SliceToVolumeRegistration: %lf seconds\n",
-              timers[SLICETOVOLUMEREGISTRATION]);
-  std::printf("InitializeEMValues: %lf seconds\n",
-	      timers[INITIALIZEEMVALUES]);
-  std::printf("CoeffInit: %lf seconds\n", timers[COEFFINIT]);
-  std::printf("GaussianReconstruction: %lf seconds\n",
-	      timers[GAUSSIANRECONSTRUCTION]);
-  std::printf("SimulateSlices: %lf seconds\n", timers[SIMULATESLICES]);
-  std::printf("InitializeRobustStatistics: %lf seconds\n",
-	      timers[INITIALIZEROBUSTSTATISTICS]);
-  std::printf("EStep: %lf seconds\n", timers[ESTEP]);
-  
-  std::printf("Scale: %lf seconds\n", timers[SCALE]);
-  std::printf("Superresolution: %lf seconds\n", timers[SUPERRESOLUTION]);
-  std::printf("MStep: %lf seconds\n", timers[MSTEP]);
-  std::printf("MaskVolume: %lf seconds\n", timers[MASKVOLUME]);
-  std::printf("Evaluate: %lf seconds\n", timers[EVALUATE]);
-  std::printf("RestoreSliceIntensities and ScaleVolume: %lf seconds\n",
-              timers[RESTORESLICE]);
-
-  std::printf("compute time: %lf seconds\n",
-              (tend.tv_sec - tstart.tv_sec) +
-                  ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
-  std::printf("sumCompute: %lf seconds\n", sumCompute);
-  
-  float temp2 = 0.0;
-  for(i=0;i<13;i++)
-  {
-      temp2 += timers[i];
-  }
-  std::printf("sumTimers: %lf seconds\n", temp2);
-  
-  std::printf("checksum _reconstructed = %lf\n",
-              sumOneImage(reconstruction->_reconstructed));
-
-  // save final result
-  //reconstructed = reconstruction->GetReconstructed();
-  //reconstructed.Write(outputName.c_str());
   
   gettimeofday(&totend, NULL);
   std::printf("total time: %lf seconds\n",
@@ -807,11 +535,13 @@ int main(int argc, char **argv) {
 	      ((totend.tv_usec - totstart.tv_usec) / 1000000.0));
 
 #else  
-#ifdef __TEST__
+
+/*#ifdef __TEST__
   std::printf("TEST\n");
 #else
   std::printf("ab c\n");
-#endif
+  #endif*/
+
   int numNodes = 1;
   reconstruction->setNumNodes(numNodes);
   
@@ -835,7 +565,7 @@ int main(int argc, char **argv) {
   {
       f.Get();
       std::cout << "all nodes initialized" << std::endl;
-      ebbrt::event_manager->Spawn([reconstruction]() { reconstruction->runRecon(); });
+      ebbrt::event_manager->Spawn([reconstruction]() { reconstruction->SendRecon(); });
   });
 
   reconstruction->waitReceive().Then([&c](ebbrt::Future<void> f)
