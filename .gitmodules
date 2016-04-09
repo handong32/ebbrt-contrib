@@ -25,3 +25,15 @@
 [submodule "apps/coeffInitRecon/hosted/build/lib"]
 	path = apps/coeffInitRecon/hosted/build/lib
 	url = https://github.com/handong32/EbbRT-irtk-libs.git
+[submodule "apps/EbbRTRecon/baremetal/ext/boost"]
+	path = apps/EbbRTRecon/baremetal/ext/boost
+	url = https://github.com/handong32/EbbRT-boost.git
+[submodule "apps/EbbRTRecon/baremetal/ext/gsl"]
+	path = apps/EbbRTRecon/baremetal/ext/gsl
+	url = https://github.com/handong32/EbbRT-gsl-libs.git
+[submodule "apps/EbbRTRecon/baremetal/build/lib"]
+	path = apps/EbbRTRecon/baremetal/build/lib
+	url = https://github.com/handong32/EbbRT-ext-libs.git
+[submodule "apps/EbbRTRecon/hosted/build/lib"]
+	path = apps/EbbRTRecon/hosted/build/lib
+	url = https://github.com/handong32/EbbRT-irtk-libs.git
