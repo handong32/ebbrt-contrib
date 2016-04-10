@@ -7,7 +7,7 @@
 
 #include <math.h>
 #include <stdlib.h>
-#include "../../src/utils.h"
+//#include "../../src/utils.h"
 #include <string>
 #include <signal.h>
 #include <thread>
@@ -246,7 +246,7 @@ int main(int argc, char **argv) {
         po::bool_switch(&disableBiasCorr)->default_value(false),
         "disable bias field correction for cases with little or no bias field "
         "inhomogenities (makes it faster but less reliable for stron intensity "
-        "bias)")("numThreads", po::value<int>(&numThreads)->default_value(-1),
+        "bias)")("numThreads", po::value<int>(&numThreads)->default_value(1),
                  "Number of CPU threads to run for TBB");
 
     po::variables_map vm;
@@ -281,9 +281,7 @@ int main(int argc, char **argv) {
 
     // set CPU  threads
     if (numThreads > 0) {
-      cout << "PREV tbb_no_threads = " << tbb_no_threads << endl;
-      tbb_no_threads = numThreads;
-      cout << "NEW tbb_no_threads = " << tbb_no_threads << endl;
+      cout << "numThreads = " << numThreads << endl;
     } else {
       cout << "Using task_scheduler_init::automatic number of threads" << endl;
     }
@@ -327,7 +325,8 @@ int main(int argc, char **argv) {
   std::printf("*********** Create() ***********\n");
 
   auto reconstruction = irtkReconstructionEbb::Create();
-
+  reconstruction->setNumThreads(numThreads);
+  
   if (useSINCPSF) {
     reconstruction->useSINCPSF();
   }
@@ -525,7 +524,8 @@ int main(int argc, char **argv) {
   std::printf("lambda = %f delta = %f intensity_matching = %d useCPU = %d disableBiasCorr = %d sigma = %f global_bias_correction = %d lastIterLambda = %f iterations = %d levels = %d\n", lambda, delta, intensity_matching, useCPU, disableBiasCorr, sigma, global_bias_correction, lastIterLambda, iterations, levels);
 
 #ifndef __EBB__
-  
+
+  std::printf("runRecon\n");
   reconstruction->RunRecon(iterations, delta, lastIterLambda, rec_iterations_first, rec_iterations_last, intensity_matching, lambda, levels);
 
   

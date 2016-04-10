@@ -81,13 +81,12 @@ private:
   ebbrt::EventManager::EventContext* emec{nullptr};
   int numNodes;
 
-protected:  
-  vector<irtkRealImage> _slices_resampled;
 
-  //std::vector<Matrix4> _transf;
+public:
+  vector<irtkRealImage> _slices_resampled;
+  int _numThreads;
 
   /// Transformations
-
   vector<irtkRigidTransformation> _transformations_gpu;
   /// Indicator whether slice has an overlap with volumetric mask
 
@@ -206,7 +205,7 @@ protected:
   bool _debugGPU;
 
 
-public:
+
   static ebbrt::EbbRef<irtkReconstructionEbb>
   Create(ebbrt::EbbId id = ebbrt::ebb_allocator->Allocate());
 
@@ -269,6 +268,7 @@ public:
   void SaveProbabilityMap(int i);
 
   void setNumNodes(int i);
+  void setNumThreads(int i);
   void addNid(ebbrt::Messenger::NetworkId nid);
   ebbrt::Future<void> waitNodes();
   ebbrt::Future<void> waitReceive();
@@ -349,7 +349,6 @@ public:
   ///Initalize robust statistics
   void InitializeRobustStatistics();
 
-  void parallelEStep(vector<double>& slice_potential);
   ///Perform E-step 
   void EStep();
 
@@ -507,7 +506,7 @@ public:
 
   void PrepareRegistrationSlices();
   friend class ParallelAverage;
-  friend class ParallelSliceAverage;
+  friend class ParallelSimulateSlices;
   friend class ParallelStackRegistrations;
 };
 
