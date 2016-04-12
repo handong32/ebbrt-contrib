@@ -63,12 +63,12 @@
 #include <irtkTransformation.h>
 #include <math.h>
 #include <stdlib.h>
-#include <utils.h>
+#include "utils.h"
 #include <thread>
-//#include <perfstats.h>
 
-//#include <boost/filesystem.hpp>
-//using namespace boost::filesystem;
+#include <time.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"
@@ -76,22 +76,23 @@
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #pragma GCC diagnostic ignored "-Wreturn-type"
 
-int tbb_no_threads = 1;
+#define PRINTF std::printf
+#define FORPRINTF std::printf
 
 void bbox(irtkRealImage &stack, irtkRigidTransformation &transformation,
           double &min_x, double &min_y, double &min_z, double &max_x,
           double &max_y, double &max_z) {
-
-  cout << "bbox" << endl;
-
-  min_x = voxel_limits<irtkRealPixel>::max();
-  min_y = voxel_limits<irtkRealPixel>::max();
-  min_z = voxel_limits<irtkRealPixel>::max();
-  max_x = voxel_limits<irtkRealPixel>::min();
-  max_y = voxel_limits<irtkRealPixel>::min();
-  max_z = voxel_limits<irtkRealPixel>::min();
-  double x, y, z;
-  for (int i = 0; i <= stack.GetX(); i += stack.GetX())
+    
+    cout << "bbox" << endl;
+    
+    min_x = voxel_limits<irtkRealPixel>::max();
+    min_y = voxel_limits<irtkRealPixel>::max();
+    min_z = voxel_limits<irtkRealPixel>::max();
+    max_x = voxel_limits<irtkRealPixel>::min();
+    max_y = voxel_limits<irtkRealPixel>::min();
+    max_z = voxel_limits<irtkRealPixel>::min();
+    double x, y, z;
+    for (int i = 0; i <= stack.GetX(); i += stack.GetX())
     for (int j = 0; j <= stack.GetY(); j += stack.GetY())
       for (int k = 0; k <= stack.GetZ(); k += stack.GetZ()) {
         x = i;
@@ -174,75 +175,57 @@ void centroid(irtkRealImage &image, double &x, double &y, double &z) {
   //std::cout << "CENTROID:" << x << "," << y << "," << z << "\n\n";
 }
 
-/*   end of auxiliary functions */
+irtkReconstruction::irtkReconstruction()
+{
+    _step = 0.0001;
+    _debug = false;
+    _quality_factor = 2;
+    _sigma_bias = 12;
+    _sigma_s_cpu = 0.025;
+    _sigma_s_gpu = 0.025;
+    _sigma_s2_cpu = 0.025;
+    _sigma_s2_gpu = 0.025;
+    _mix_s_cpu = 0.9;
+    _mix_s_gpu = 0.9;
+    _mix_cpu = 0.9;
+    _mix_gpu = 0.9;
+    _delta = 1;
+    _lambda = 0.1;
+    _alpha = (0.05 / _lambda) * _delta * _delta;
+    _template_created = false;
+    _have_mask = false;
+    _low_intensity_cutoff = 0.01;
+    _global_bias_correction = false;
+    _adaptive = false;
+    _use_SINC = false;
 
-irtkReconstruction::irtkReconstruction(std::vector<int> dev, bool useCPUReg,
-                                       bool useCPU) {
-  _step = 0.0001;
-  _debug = false;
-  _quality_factor = 2;
-  _sigma_bias = 12;
-  _sigma_s_cpu = 0.025;
-  _sigma_s_gpu = 0.025;
-  _sigma_s2_cpu = 0.025;
-  _sigma_s2_gpu = 0.025;
-  _mix_s_cpu = 0.9;
-  _mix_s_gpu = 0.9;
-  _mix_cpu = 0.9;
-  _mix_gpu = 0.9;
-  _delta = 1;
-  _lambda = 0.1;
-  _alpha = (0.05 / _lambda) * _delta * _delta;
-  _template_created = false;
-  _have_mask = false;
-  _low_intensity_cutoff = 0.01;
-  _global_bias_correction = false;
-  _adaptive = false;
-  _use_SINC = false;
+    int directions[13][3] = { { 1, 0, -1 },
+			      { 0, 1, -1 },
+			      { 1, 1, -1 },
+			      { 1, -1, -1 },
+			      { 1, 0, 0 },
+			      { 0, 1, 0 },
+			      { 1, 1, 0 },
+			      { 1, -1, 0 },
+			      { 1, 0, 1 },
+			      { 0, 1, 1 },
+			      { 1, 1, 1 },
+			      { 1, -1, 1 },
+			      { 0, 0, 1 } };
+    for (int i = 0; i < 13; i++)
+	for (int j = 0; j < 3; j++)
+	    _directions[i][j] = directions[i][j];
 
-  int directions[13][3] = { { 1, 0, -1 },
-                            { 0, 1, -1 },
-                            { 1, 1, -1 },
-                            { 1, -1, -1 },
-                            { 1, 0, 0 },
-                            { 0, 1, 0 },
-                            { 1, 1, 0 },
-                            { 1, -1, 0 },
-                            { 1, 0, 1 },
-                            { 0, 1, 1 },
-                            { 1, 1, 1 },
-                            { 1, -1, 1 },
-                            { 0, 0, 1 } };
-  for (int i = 0; i < 13; i++)
-    for (int j = 0; j < 3; j++)
-      _directions[i][j] = directions[i][j];
-
-  _useCPUReg = useCPUReg;
-  _useCPU = useCPU;
-  // FIXXME
-  // TODO as possible workaround, but ugly -- dactiveates multithreading in cu
-  // reconstructionGPU = new Reconstruction(dev, !_useCPUReg);
-  /*if (_useCPUReg)
-    {
-    reconstructionGPU = new Reconstruction(dev, false); //workaround
-    }
-    else
-    {*/
-  /*if(!useCPU)
-    {
-    reconstructionGPU = new Reconstruction(dev, true); //to produce the error
-    for CPUReg and multithreaded GPUs
-    }*/
-  //}
+    _useCPUReg = true;
+    _useCPU = true;
 }
 
-irtkReconstruction::~irtkReconstruction() {}
+//irtkReconstruction::~irtkReconstruction() {}
 
-void irtkReconstruction::Set_debugGPU(bool val) { _debugGPU = val; }
-
-void irtkReconstruction::SyncGPU() {}
-
-std::vector<irtkMatrix> irtkReconstruction::UpdateGPUTranformationMatrices() {}
+void irtkReconstruction::setNumThreads(int i)
+{
+    _numThreads = i;
+}
 
 void irtkReconstruction::CenterStacks(
     vector<irtkRealImage> &stacks,
@@ -296,6 +279,7 @@ class ParallelAverage {
 
   bool linear;
 
+    int nt;
 public:
   irtkRealImage average;
   irtkRealImage weights;
@@ -359,7 +343,7 @@ public:
                   vector<irtkRealImage> &_stacks,
                   vector<irtkRigidTransformation> &_stack_transformations,
                   double _targetPadding, double _sourcePadding,
-                  double _background, bool _linear = false)
+                  double _background, int _nt, bool _linear = false)
       : reconstructor(reconstructor), stacks(_stacks),
         stack_transformations(_stack_transformations) {
     average.Initialize(reconstructor->_reconstructed.GetImageAttributes());
@@ -370,78 +354,13 @@ public:
     sourcePadding = _sourcePadding;
     background = _background;
     linear = _linear;
+    nt = _nt;
   }
 
   // execute
   void operator()() {
-    task_scheduler_init init(tbb_no_threads);
+    task_scheduler_init init(nt);
     parallel_reduce(blocked_range<size_t>(0, stacks.size()), *this);
-    init.terminate();
-  }
-};
-
-class ParallelSliceAverage {
-  irtkReconstruction *reconstructor;
-  vector<irtkRealImage> &slices;
-  vector<irtkRigidTransformation> &slice_transformations;
-  irtkRealImage &average;
-  irtkRealImage &weights;
-
-public:
-  void operator()(const blocked_range<size_t> &r) const {
-    for (int k0 = r.begin(); k0 < r.end(); k0++) {
-      for (int j0 = 0; j0 < average.GetY(); j0++) {
-        for (int i0 = 0; i0 < average.GetX(); i0++) {
-          double x0 = i0;
-          double y0 = j0;
-          double z0 = k0;
-          // Transform point into world coordinates
-          average.ImageToWorld(x0, y0, z0);
-          for (int inputIndex = 0; inputIndex < slices.size(); inputIndex++) {
-            double x = x0;
-            double y = y0;
-            double z = z0;
-            // Transform point
-            slice_transformations[inputIndex].Transform(x, y, z);
-            // Transform point into image coordinates
-            slices[inputIndex].WorldToImage(x, y, z);
-            int i = round(x);
-            int j = round(y);
-            int k = round(z);
-            // Check whether transformed point is in FOV of input
-            if ((i >= 0) && (i < slices[inputIndex].GetX()) && (j >= 0) &&
-                (j < slices[inputIndex].GetY()) && (k >= 0) &&
-                (k < slices[inputIndex].GetZ())) {
-              if (slices[inputIndex](i, j, k) > 0) {
-                average.PutAsDouble(i0, j0, k0, 0,
-                                    average(i0, j0, k0) +
-                                        slices[inputIndex](i, j, k));
-                weights.PutAsDouble(i0, j0, k0, 0, weights(i0, j0, k0) + 1);
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  ParallelSliceAverage(irtkReconstruction *reconstructor,
-                       vector<irtkRealImage> &_slices,
-                       vector<irtkRigidTransformation> &_slice_transformations,
-                       irtkRealImage &_average, irtkRealImage &_weights)
-      : reconstructor(reconstructor), slices(_slices),
-        slice_transformations(_slice_transformations), average(_average),
-        weights(_weights) {
-    average.Initialize(reconstructor->_reconstructed.GetImageAttributes());
-    average = 0;
-    weights.Initialize(reconstructor->_reconstructed.GetImageAttributes());
-    weights = 0;
-  }
-
-  // execute
-  void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, average.GetZ()), *this);
     init.terminate();
   }
 };
@@ -458,7 +377,7 @@ irtkRealImage irtkReconstruction::CreateAverage(
   InvertStackTransformations(stack_transformations);
   ParallelAverage parallelAverage(this, stacks, stack_transformations, -1, 0,
                                   0, // target/source/background
-                                  true);
+                                  true, _numThreads);
   parallelAverage();
   irtkRealImage average = parallelAverage.average;
   irtkRealImage weights = parallelAverage.weights;
@@ -494,7 +413,7 @@ double irtkReconstruction::CreateTemplate(irtkRealImage stack,
   } else
     d = resolution;
 
-  cout << "Constructing volume with isotropic voxel size " << d << endl;
+  //cout << "Constructing volume with isotropic voxel size " << d << endl;
 
   // resample "enlarged" to resolution "d"
   irtkNearestNeighborInterpolateImageFunction interpolator;
@@ -635,17 +554,18 @@ class ParallelStackRegistrations {
   irtkGreyImage &target;
   irtkRigidTransformation &offset;
   bool _externalTemplate;
-
+    int nt;
 public:
-  ParallelStackRegistrations(
+    ParallelStackRegistrations(
       irtkReconstruction *_reconstructor, vector<irtkRealImage> &_stacks,
       vector<irtkRigidTransformation> &_stack_transformations,
       int _templateNumber, irtkGreyImage &_target,
-      irtkRigidTransformation &_offset, bool externalTemplate = false)
+      irtkRigidTransformation &_offset, int _nt, bool externalTemplate = false)
       : reconstructor(_reconstructor), stacks(_stacks),
         stack_transformations(_stack_transformations), target(_target),
         offset(_offset) {
-    templateNumber = _templateNumber, _externalTemplate = externalTemplate;
+	templateNumber = _templateNumber, _externalTemplate = externalTemplate,
+	    nt = _nt;
   }
 
   void operator()(const blocked_range<size_t> &r) const {
@@ -683,26 +603,12 @@ public:
       m = stack_transformations[i].GetMatrix();
       m = m * mo;
       stack_transformations[i].PutMatrix(m);
-
-      // stack_transformations[i] = transformation;
-
-      // save volumetric registrations
-      if (reconstructor->_debug) {
-        // buffer to create the name
-        char buffer[256];
-        registration.irtkImageRegistration::Write((char *)"parout-volume.rreg");
-        sprintf(buffer, "stack-transformation%i.dof.gz", (int)i);
-        stack_transformations[i].irtkTransformation::Write(buffer);
-        target.Write("target.nii.gz");
-        sprintf(buffer, "stack%i.nii.gz", (int)i);
-        stacks[i].Write(buffer);
-      }
     }
   }
 
   // execute
   void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
+    task_scheduler_init init(nt);
     parallel_for(blocked_range<size_t>(0, stacks.size()), *this);
     init.terminate();
   }
@@ -757,8 +663,8 @@ void irtkReconstruction::StackRegistrations(
 
   // register all stacks to the target
   ParallelStackRegistrations registration(this, stacks, stack_transformations,
-                                          templateNumber, target, offset,
-                                          useExternalTarget);
+                                          templateNumber, target, offset, 
+					  _numThreads, useExternalTarget);
   registration();
 
   InvertStackTransformations(stack_transformations);
@@ -786,19 +692,9 @@ void irtkReconstruction::RestoreSliceIntensities() {
       p++;
     }
   }
-  //std::cout << std::endl;
-}
-
-void irtkReconstruction::RestoreSliceIntensitiesGPU() {
-  // TODO
-  //_stack_factor
-  // reconstructionGPU->RestoreSliceIntensities(_stack_factor, _stack_index);
 }
 
 void irtkReconstruction::ScaleVolume() {
-  if (_debug)
-    cout << "Scaling volume: ";
-
   unsigned int inputIndex;
   int i, j;
   double scalenum = 0, scaleden = 0;
@@ -829,140 +725,83 @@ void irtkReconstruction::ScaleVolume() {
   // calculate scale for the volume
   double scale = scalenum / scaleden;
 
-  if (_debug)
-    cout << " scale = " << scale;
-
   irtkRealPixel *ptr = _reconstructed.GetPointerToVoxels();
   for (i = 0; i < _reconstructed.GetNumberOfVoxels(); i++) {
     if (*ptr > 0)
       *ptr = *ptr * scale;
     ptr++;
   }
-  cout << endl;
 }
 
-void irtkReconstruction::ScaleVolumeGPU() {
-  if (_debug)
-    cout << "Scaling volume: ";
-
-  // TODO
-  // reconstructionGPU->ScaleVolume();
-}
-
-class ParallelSimulateSlices {
-  irtkReconstruction *reconstructor;
-
-public:
-  ParallelSimulateSlices(irtkReconstruction *_reconstructor)
-      : reconstructor(_reconstructor) {}
-
-  void operator()(const blocked_range<size_t> &r) const {
-    for (size_t inputIndex = r.begin(); inputIndex != r.end(); ++inputIndex) {
-      // Calculate simulated slice
-      reconstructor->_simulated_slices[inputIndex].Initialize(
-          reconstructor->_slices[inputIndex].GetImageAttributes());
-      reconstructor->_simulated_slices[inputIndex] = 0;
-
-      reconstructor->_simulated_weights[inputIndex].Initialize(
-          reconstructor->_slices[inputIndex].GetImageAttributes());
-      reconstructor->_simulated_weights[inputIndex] = 0;
-
-      reconstructor->_simulated_inside[inputIndex].Initialize(
-          reconstructor->_slices[inputIndex].GetImageAttributes());
-      reconstructor->_simulated_inside[inputIndex] = 0;
-
-      reconstructor->_slice_inside_cpu[inputIndex] = false;
-
-      POINT3D p;
-      for (unsigned int i = 0; i < reconstructor->_slices[inputIndex].GetX();
-           i++)
-        for (unsigned int j = 0; j < reconstructor->_slices[inputIndex].GetY();
-             j++)
-          if (reconstructor->_slices[inputIndex](i, j, 0) != -1) {
-            double weight = 0;
-            int n = reconstructor->_volcoeffs[inputIndex][i][j].size();
-            for (unsigned int k = 0; k < n; k++) {
-              p = reconstructor->_volcoeffs[inputIndex][i][j][k];
-              reconstructor->_simulated_slices[inputIndex](i, j, 0) +=
-                  p.value * reconstructor->_reconstructed(p.x, p.y, p.z);
-              weight += p.value;
-              if (reconstructor->_mask(p.x, p.y, p.z) == 1) {
-                reconstructor->_simulated_inside[inputIndex](i, j, 0) = 1;
-                reconstructor->_slice_inside_cpu[inputIndex] = true;
-              }
-            }
-            if (weight > 0) {
-              reconstructor->_simulated_slices[inputIndex](i, j, 0) /= weight;
-              reconstructor->_simulated_weights[inputIndex](i, j, 0) = weight;
-            }
-          }
-    }
-  }
-
-  // execute
-  void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, reconstructor->_slices.size()),
-                 *this);
-    init.terminate();
-  }
-};
-
-void irtkReconstruction::SimulateSlices() {
-    size_t inputIndex = 0;
-    for (inputIndex = 0; inputIndex != _slices.size(); inputIndex++) {
+void runSimulateSlices(irtkReconstruction *reconstructor, int start, int end)
+{
+    for (int inputIndex = start; inputIndex != end; ++inputIndex) {
 	// Calculate simulated slice
-	_simulated_slices[inputIndex].Initialize(
-	    _slices[inputIndex].GetImageAttributes());
-	_simulated_slices[inputIndex] = 0;
+	reconstructor->_simulated_slices[inputIndex].Initialize(
+	    reconstructor->_slices[inputIndex].GetImageAttributes());
+	reconstructor->_simulated_slices[inputIndex] = 0;
 
-	_simulated_weights[inputIndex].Initialize(
-	    _slices[inputIndex].GetImageAttributes());
-	_simulated_weights[inputIndex] = 0;
+	reconstructor->_simulated_weights[inputIndex].Initialize(
+	    reconstructor->_slices[inputIndex].GetImageAttributes());
+	reconstructor->_simulated_weights[inputIndex] = 0;
 
-	_simulated_inside[inputIndex].Initialize(
-	    _slices[inputIndex].GetImageAttributes());
-	_simulated_inside[inputIndex] = 0;
+	reconstructor->_simulated_inside[inputIndex].Initialize(
+	    reconstructor->_slices[inputIndex].GetImageAttributes());
+	reconstructor->_simulated_inside[inputIndex] = 0;
 
-	_slice_inside_cpu[inputIndex] = false;
+	reconstructor->_slice_inside_cpu[inputIndex] = false;
 
 	POINT3D p;
-	for (unsigned int i = 0; i < (unsigned int)_slices[inputIndex].GetX();
+	for (unsigned int i = 0; i < reconstructor->_slices[inputIndex].GetX();
 	     i++)
-	    for (unsigned int j = 0; j < (unsigned int)_slices[inputIndex].GetY();
+	    for (unsigned int j = 0; j < reconstructor->_slices[inputIndex].GetY();
 		 j++)
-		if (_slices[inputIndex](i, j, 0) != -1) {
+		if (reconstructor->_slices[inputIndex](i, j, 0) != -1) {
 		    double weight = 0;
-		    int n = _volcoeffs[inputIndex][i][j].size();
-		    for (unsigned int k = 0; k < (unsigned int)n; k++) {
-			p = _volcoeffs[inputIndex][i][j][k];
-			_simulated_slices[inputIndex](i, j, 0) +=
-			    p.value * _reconstructed(p.x, p.y, p.z);
+		    int n = reconstructor->_volcoeffs[inputIndex][i][j].size();
+		    for (unsigned int k = 0; k < n; k++) {
+			p = reconstructor->_volcoeffs[inputIndex][i][j][k];
+			reconstructor->_simulated_slices[inputIndex](i, j, 0) +=
+			    p.value * reconstructor->_reconstructed(p.x, p.y, p.z);
 			weight += p.value;
-			if (_mask(p.x, p.y, p.z) == 1) {
-			    _simulated_inside[inputIndex](i, j, 0) = 1;
-			    _slice_inside_cpu[inputIndex] = true;
+			if (reconstructor->_mask(p.x, p.y, p.z) == 1) {
+			    reconstructor->_simulated_inside[inputIndex](i, j, 0) = 1;
+			    reconstructor->_slice_inside_cpu[inputIndex] = true;
 			}
 		    }
 		    if (weight > 0) {
-			_simulated_slices[inputIndex](i, j, 0) /= weight;
-			_simulated_weights[inputIndex](i, j, 0) = weight;
+			reconstructor->_simulated_slices[inputIndex](i, j, 0) /= weight;
+			reconstructor->_simulated_weights[inputIndex](i, j, 0) = weight;
 		    }
 		}
     }
 }
 
-void irtkReconstruction::SimulateSlicesGPU() {
-  if (_slice_inside_gpu.size() == 0) {
-    _slice_inside_gpu.clear();
-    _slice_inside_gpu.resize(_slices.size());
-  }
+class ParallelSimulateSlices {
+    irtkReconstruction *reconstructor;
+    int nt;
+public:
+    ParallelSimulateSlices(irtkReconstruction *_reconstructor, int _nt)
+	: reconstructor(_reconstructor), nt(_nt) {}
+
+    void operator()(const blocked_range<int> &r) const {
+	runSimulateSlices(reconstructor, r.begin(), r.end());
+    }
+
+    // execute
+    void operator()() const {
+	task_scheduler_init init(nt);
+	parallel_for(blocked_range<int>(0, reconstructor->_slices.size()),
+		     *this);
+	init.terminate();
+    }
+};
+void irtkReconstruction::SimulateSlices() {
+    ParallelSimulateSlices parallelSimulateSlices(this, _numThreads);
+    parallelSimulateSlices();
 }
 
 void irtkReconstruction::SimulateStacks(vector<irtkRealImage> &stacks) {
-  if (_debug)
-    cout << "Simulating stacks." << endl;
-
   unsigned int inputIndex;
   int i, j, k, n;
   irtkRealImage sim;
@@ -1107,19 +946,6 @@ void irtkReconstruction::MatchStackIntensities(
         *ptr *= factor;
       ptr++;
     }
-  }
-
-  if (_debug) {
-    for (ind = 0; ind < stacks.size(); ind++) {
-      sprintf(buffer, "rescaled-stack%i.nii.gz", ind);
-      stacks[ind].Write(buffer);
-    }
-
-    cout << "Slice intensity factors are ";
-    for (ind = 0; ind < stack_average.size(); ind++)
-      cout << _stack_factor[ind] << " ";
-    cout << endl;
-    cout << "The new average value is " << averageValue << endl;
   }
 }
 
@@ -1351,9 +1177,6 @@ void irtkReconstruction::CreateSlicesAndTransformations(
     vector<irtkRigidTransformation> &stack_transformations,
     vector<double> &thickness, const vector<irtkRealImage> &probability_maps) {
 
-  if (_debug)
-    cout << "CreateSlicesAndTransformations" << endl;
-
   std::vector<uint3> stack_sizes_;
   uint3 temp;
 
@@ -1388,17 +1211,11 @@ void irtkReconstruction::CreateSlicesAndTransformations(
     }
   }
 
-  // if(!_useCPU)
-  //    reconstructionGPU->updateStackSizes(stack_sizes_);
-
-  cout << "Number of slices: " << _slices.size() << endl;
+  //cout << "Number of slices: " << _slices.size() << endl;
 }
 
 void irtkReconstruction::ResetSlices(vector<irtkRealImage> &stacks,
                                      vector<double> &thickness) {
-  if (_debug)
-    cout << "ResetSlices" << endl;
-
   _slices.clear();
 
   // for each stack
@@ -1418,7 +1235,7 @@ void irtkReconstruction::ResetSlices(vector<irtkRealImage> &stacks,
       _slices.push_back(slice);
     }
   }
-  cout << "Number of slices: " << _slices.size() << endl;
+  //cout << "Number of slices: " << _slices.size() << endl;
 
   for (int i = 0; i < _slices.size(); i++) {
     _bias[i].Initialize(_slices[i].GetImageAttributes());
@@ -1480,11 +1297,11 @@ void irtkReconstruction::UpdateSlices(vector<irtkRealImage> &stacks,
       _slices.push_back(slice);
     }
   }
-  cout << "Number of slices: " << _slices.size() << endl;
+//  cout << "Number of slices: " << _slices.size() << endl;
 }
 
 void irtkReconstruction::MaskSlices() {
-  cout << "Masking slices ... ";
+//  cout << "Masking slices ... ";
 
   double x, y, z;
   int i, j;
@@ -1528,130 +1345,14 @@ void irtkReconstruction::MaskSlices() {
       }
   }
 
-  cout << "done." << endl;
+//  cout << "done." << endl;
 }
 
-// TODO implement non rigid registration and its evaluation in cuda...
-class ParallelSliceToVolumeRegistration {
-public:
-  irtkReconstruction *reconstructor;
-
-  ParallelSliceToVolumeRegistration(irtkReconstruction *_reconstructor)
-      : reconstructor(_reconstructor) {}
-
-  void operator()(const blocked_range<size_t> &r) const {
-
-    irtkImageAttributes attr =
-        reconstructor->_reconstructed.GetImageAttributes();
-
-    for (size_t inputIndex = r.begin(); inputIndex != r.end(); ++inputIndex) {
-      irtkImageRigidRegistrationWithPadding registration;
-      irtkGreyPixel smin, smax;
-      irtkGreyImage target;
-      irtkRealImage slice, w, b, t;
-      irtkResamplingWithPadding<irtkRealPixel> resampling(attr._dx, attr._dx,
-                                                          attr._dx, -1);
-      // irtkReconstruction dummy_reconstruction; // this also creats an
-      // unwanted instance of the GPU reconstruction
-
-      // target = _slices[inputIndex];
-      t = reconstructor->_slices[inputIndex];
-      resampling.SetInput(&reconstructor->_slices[inputIndex]);
-      resampling.SetOutput(&t);
-      resampling.Run();
-      target = t;
-
-      target.GetMinMax(&smin, &smax);
-
-      if (smax > -1) {
-        // put origin to zero
-        irtkRigidTransformation offset;
-        // dummy_reconstruction.ResetOrigin(target,offset);
-        irtkReconstruction::ResetOrigin(target, offset);
-        irtkMatrix mo = offset.GetMatrix();
-        irtkMatrix m = reconstructor->_transformations[inputIndex].GetMatrix();
-        m = m * mo;
-        reconstructor->_transformations[inputIndex].PutMatrix(m);
-        // std::cout << " ofsMatrix: " << inputIndex << std::endl;
-        // reconstructor->_transformations[inputIndex].GetMatrix().Print();
-
-        irtkGreyImage source = reconstructor->_reconstructed;
-        registration.SetInput(&target, &source);
-        registration.SetOutput(&reconstructor->_transformations[inputIndex]);
-        registration.GuessParameterSliceToVolume();
-        registration.SetTargetPadding(-1);
-        registration.Run();
-
-        reconstructor->_slices_regCertainty[inputIndex] =
-            registration.last_similarity;
-        // undo the offset
-        mo.Invert();
-        m = reconstructor->_transformations[inputIndex].GetMatrix();
-        m = m * mo;
-        reconstructor->_transformations[inputIndex].PutMatrix(m);
-      }
-    }
-  }
-
-  // execute
-  void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, reconstructor->_slices.size()),
-                 *this);
-    init.terminate();
-  }
-};
-
-void irtkReconstruction::testCPURegGPU() {}
-
-void irtkReconstruction::PrepareRegistrationSlices() {}
-class ParallelSliceToVolumeRegistrationGPU {
-public:
-  irtkReconstruction *reconstructor;
-
-  ParallelSliceToVolumeRegistrationGPU(irtkReconstruction *_reconstructor)
-      : reconstructor(_reconstructor) {}
-
-  void operator()(const blocked_range<size_t> &r) const {
-
-    irtkImageAttributes attr =
-        reconstructor->_reconstructed.GetImageAttributes();
-
-    unsigned int devslice = 0;
-    for (size_t inputIndex = r.begin(); inputIndex != r.end(); ++inputIndex) {
-
-      // TODO poll until GPU is free, then do
-      // TODO get current thread number, assign to stream
-      // execute registration for single slice with streams
-      int alls = reconstructor->_slices.size();
-      // int curid =
-      // (int)inputIndex%reconstructor->reconstructionGPU->devicesToUse.size();
-      // //TODO improve. find number of CPUs
-      // printf("current proc ID %d dev_slice %d inputIndex %d\n", curid,
-      // devslice, inputIndex);
-      // printf("ERROR NOT WORKING ANYMORE\n");
-      // exit(-4646);
-      // reconstructor->reconstructionGPU->registerSliceToVolume(reconstructor->_transf[inputIndex],
-      // inputIndex, devslice, curid);
-      devslice++;
-    }
-  }
-
-  // execute
-  void operator()() const {}
-};
-
-void irtkReconstruction::SliceToVolumeRegistrationGPU() {}
-
-void irtkReconstruction::SliceToVolumeRegistration() {
-    if (_slices_regCertainty.size() == 0) {
-	_slices_regCertainty.resize(_slices.size());
-    }
-
-    irtkImageAttributes attr = _reconstructed.GetImageAttributes();
+void runSliceToVolumeRegistration(irtkReconstruction *reconstructor, int start, int end)
+{
+    irtkImageAttributes attr = reconstructor->_reconstructed.GetImageAttributes();
     
-    size_t inputIndex = 0;
-    for(inputIndex = 0; inputIndex != _slices.size(); inputIndex++) {
+    for(int inputIndex = start; inputIndex != end; inputIndex++) {
 	irtkImageRigidRegistrationWithPadding registration;
 	irtkGreyPixel smin, smax;
 	irtkGreyImage target;
@@ -1659,8 +1360,8 @@ void irtkReconstruction::SliceToVolumeRegistration() {
 	irtkResamplingWithPadding<irtkRealPixel> resampling(attr._dx, attr._dx,
 							    attr._dx, -1);
 	
-	t = _slices[inputIndex];
-	resampling.SetInput(&_slices[inputIndex]);
+	t = reconstructor->_slices[inputIndex];
+	resampling.SetInput(&reconstructor->_slices[inputIndex]);
 	resampling.SetOutput(&t);
 	resampling.Run();
 	target = t;
@@ -1669,368 +1370,91 @@ void irtkReconstruction::SliceToVolumeRegistration() {
 	if (smax > -1) {
 	    // put origin to zero
 	    irtkRigidTransformation offset;
-	    ResetOrigin(target, offset);
+	    reconstructor->ResetOrigin(target, offset);
 	    irtkMatrix mo = offset.GetMatrix();
-	    irtkMatrix m =_transformations[inputIndex].GetMatrix();
+	    irtkMatrix m =reconstructor->_transformations[inputIndex].GetMatrix();
 	    m = m * mo;
-	    _transformations[inputIndex].PutMatrix(m);
+	    reconstructor->_transformations[inputIndex].PutMatrix(m);
 	    
-	    irtkGreyImage source = _reconstructed;
+	    irtkGreyImage source = reconstructor->_reconstructed;
 	    registration.SetInput(&target, &source);
-	    registration.SetOutput(&_transformations[inputIndex]);
+	    registration.SetOutput(&reconstructor->_transformations[inputIndex]);
 	    registration.GuessParameterSliceToVolume();
 	    registration.SetTargetPadding(-1);
 	    registration.Run();
 	    
-	    _slices_regCertainty[inputIndex] = registration.last_similarity;
+	    reconstructor->_slices_regCertainty[inputIndex] = registration.last_similarity;
 	    // undo the offset
 	    mo.Invert();
-	    m = _transformations[inputIndex].GetMatrix();
+	    m = reconstructor->_transformations[inputIndex].GetMatrix();
 	    m = m * mo;
-	    _transformations[inputIndex].PutMatrix(m);
+	    reconstructor->_transformations[inputIndex].PutMatrix(m);
 	}
     }
 }
 
-class ParallelCoeffInit {
+class ParallelSliceToVolumeRegistration {
 public:
-  irtkReconstruction *reconstructor;
+    irtkReconstruction *reconstructor;
+    int nt;
 
-  ParallelCoeffInit(irtkReconstruction *_reconstructor)
-      : reconstructor(_reconstructor) {}
+    ParallelSliceToVolumeRegistration(irtkReconstruction *_reconstructor, int _nt)
+	: reconstructor(_reconstructor), nt(_nt) {}
 
-  void operator()(const blocked_range<size_t> &r) const {
+    void operator()(const blocked_range<int> &r) const {
+	runSliceToVolumeRegistration(reconstructor, r.begin(), r.end());
+    }
 
-    for (size_t inputIndex = r.begin(); inputIndex != r.end(); ++inputIndex) {
-
-      bool slice_inside;
-
-      // current slice
-      // irtkRealImage slice;
-
-      // get resolution of the volume
-      double vx, vy, vz;
-      reconstructor->_reconstructed.GetPixelSize(&vx, &vy, &vz);
-      // volume is always isotropic
-      double res = vx;
-
-      // start of a loop for a slice inputIndex
-      //cout << inputIndex << " ";
-
-      // read the slice
-      irtkRealImage &slice = reconstructor->_slices[inputIndex];
-
-      // prepare structures for storage
-      POINT3D p;
-      VOXELCOEFFS empty;
-      SLICECOEFFS slicecoeffs(slice.GetX(),
-                              vector<VOXELCOEFFS>(slice.GetY(), empty));
-
-      // to check whether the slice has an overlap with mask ROI
-      slice_inside = false;
-
-      // PSF will be calculated in slice space in higher resolution
-
-      // get slice voxel size to define PSF
-      double dx, dy, dz;
-      slice.GetPixelSize(&dx, &dy, &dz);
-
-      // sigma of 3D Gaussian (sinc with FWHM=dx or dy in-plane, Gaussian with
-      // FWHM = dz through-plane)
-      double sigmax = 1.2 * dx / 2.3548;
-      double sigmay = 1.2 * dy / 2.3548;
-      double sigmaz = dz / 2.3548;
-
-      // calculate discretized PSF
-
-      // isotropic voxel size of PSF - derived from resolution of reconstructed
-      // volume
-      double size = res / reconstructor->_quality_factor;
-
-      // number of voxels in each direction
-      // the ROI is 2*voxel dimension
-
-      int xDim = round(2 * dx / size);
-      int yDim = round(2 * dy / size);
-      int zDim = round(2 * dz / size);
-
-      // image corresponding to PSF
-      irtkImageAttributes attr;
-      attr._x = xDim;
-      attr._y = yDim;
-      attr._z = zDim;
-      attr._dx = size;
-      attr._dy = size;
-      attr._dz = size;
-      irtkRealImage PSF(attr);
-
-      // centre of PSF
-      double cx, cy, cz;
-      cx = 0.5 * (xDim - 1);
-      cy = 0.5 * (yDim - 1);
-      cz = 0.5 * (zDim - 1);
-      PSF.ImageToWorld(cx, cy, cz);
-
-      double x, y, z;
-      double sum = 0;
-      int i, j, k;
-      for (i = 0; i < xDim; i++)
-        for (j = 0; j < yDim; j++)
-          for (k = 0; k < zDim; k++) {
-            x = i;
-            y = j;
-            z = k;
-            PSF.ImageToWorld(x, y, z);
-            x -= cx;
-            y -= cy;
-            z -= cz;
-            // continuous PSF does not need to be normalized as discrete will be
-            PSF(i, j, k) = exp(-x * x / (2 * sigmax * sigmax) -
-                               y * y / (2 * sigmay * sigmay) -
-                               z * z / (2 * sigmaz * sigmaz));
-            sum += PSF(i, j, k);
-          }
-      PSF /= sum;
-
-      if (reconstructor->_debug)
-        if (inputIndex == 0)
-          PSF.Write("PSF.nii.gz");
-
-      // prepare storage for PSF transformed and resampled to the space of
-      // reconstructed volume
-      // maximum dim of rotated kernel - the next higher odd integer plus two to
-      // accound for rounding error of tx,ty,tz.
-      // Note conversion from PSF image coordinates to tPSF image coordinates
-      // *size/res
-      int dim =
-          (floor(ceil(sqrt(double(xDim * xDim + yDim * yDim + zDim * zDim)) *
-                      size / res) /
-                 2)) *
-              2 +
-          1 + 2;
-      // prepare image attributes. Voxel dimension will be taken from the
-      // reconstructed volume
-      attr._x = dim;
-      attr._y = dim;
-      attr._z = dim;
-      attr._dx = res;
-      attr._dy = res;
-      attr._dz = res;
-      // create matrix from transformed PSF
-      irtkRealImage tPSF(attr);
-      // calculate centre of tPSF in image coordinates
-      int centre = (dim - 1) / 2;
-
-      // for each voxel in current slice calculate matrix coefficients
-      int ii, jj, kk;
-      int tx, ty, tz;
-      int nx, ny, nz;
-      int l, m, n;
-      double weight;
-      for (i = 0; i < slice.GetX(); i++)
-        for (j = 0; j < slice.GetY(); j++)
-          if (slice(i, j, 0) != -1) {
-            // calculate centrepoint of slice voxel in volume space (tx,ty,tz)
-            x = i;
-            y = j;
-            z = 0;
-            slice.ImageToWorld(x, y, z);
-            reconstructor->_transformations[inputIndex].Transform(x, y, z);
-            reconstructor->_reconstructed.WorldToImage(x, y, z);
-            tx = round(x);
-            ty = round(y);
-            tz = round(z);
-
-            // Clear the transformed PSF
-            for (ii = 0; ii < dim; ii++)
-              for (jj = 0; jj < dim; jj++)
-                for (kk = 0; kk < dim; kk++)
-                  tPSF(ii, jj, kk) = 0;
-
-            // for each POINT3D of the PSF
-            for (ii = 0; ii < xDim; ii++)
-              for (jj = 0; jj < yDim; jj++)
-                for (kk = 0; kk < zDim; kk++) {
-                  // Calculate the position of the POINT3D of
-                  // PSF centered over current slice voxel
-                  // This is a bit complicated because slices
-                  // can be oriented in any direction
-
-                  // PSF image coordinates
-                  x = ii;
-                  y = jj;
-                  z = kk;
-                  // change to PSF world coordinates - now real sizes in mm
-                  PSF.ImageToWorld(x, y, z);
-                  // centre around the centrepoint of the PSF
-                  x -= cx;
-                  y -= cy;
-                  z -= cz;
-
-                  // Need to convert (x,y,z) to slice image
-                  // coordinates because slices can have
-                  // transformations included in them (they are
-                  // nifti)  and those are not reflected in
-                  // PSF. In slice image coordinates we are
-                  // sure that z is through-plane
-
-                  // adjust according to voxel size
-                  x /= dx;
-                  y /= dy;
-                  z /= dz;
-                  // center over current voxel
-                  x += i;
-                  y += j;
-
-                  // convert from slice image coordinates to world coordinates
-                  slice.ImageToWorld(x, y, z);
-
-                  // x+=(vx-cx); y+=(vy-cy); z+=(vz-cz);
-                  // Transform to space of reconstructed volume
-                  reconstructor->_transformations[inputIndex].Transform(x, y,
-                                                                        z);
-                  // Change to image coordinates
-                  reconstructor->_reconstructed.WorldToImage(x, y, z);
-
-                  // determine coefficients of volume voxels for position x,y,z
-                  // using linear interpolation
-
-                  // Find the 8 closest volume voxels
-
-                  // lowest corner of the cube
-                  nx = (int)floor(x);
-                  ny = (int)floor(y);
-                  nz = (int)floor(z);
-
-                  // not all neighbours might be in ROI, thus we need to
-                  // normalize
-                  //(l,m,n) are image coordinates of 8 neighbours in volume
-                  // space
-                  // for each we check whether it is in volume
-                  sum = 0;
-                  // to find wether the current slice voxel has overlap with ROI
-                  bool inside = false;
-                  for (l = nx; l <= nx + 1; l++)
-                    if ((l >= 0) && (l < reconstructor->_reconstructed.GetX()))
-                      for (m = ny; m <= ny + 1; m++)
-                        if ((m >= 0) &&
-                            (m < reconstructor->_reconstructed.GetY()))
-                          for (n = nz; n <= nz + 1; n++)
-                            if ((n >= 0) &&
-                                (n < reconstructor->_reconstructed.GetZ())) {
-                              weight = (1 - fabs(l - x)) * (1 - fabs(m - y)) *
-                                       (1 - fabs(n - z));
-                              sum += weight;
-                              if (reconstructor->_mask(l, m, n) == 1) {
-                                inside = true;
-                                slice_inside = true;
-                              }
-                            }
-                  // if there were no voxels do nothing
-                  if ((sum <= 0) || (!inside))
-                    continue;
-                  // now calculate the transformed PSF
-                  for (l = nx; l <= nx + 1; l++)
-                    if ((l >= 0) && (l < reconstructor->_reconstructed.GetX()))
-                      for (m = ny; m <= ny + 1; m++)
-                        if ((m >= 0) &&
-                            (m < reconstructor->_reconstructed.GetY()))
-                          for (n = nz; n <= nz + 1; n++)
-                            if ((n >= 0) &&
-                                (n < reconstructor->_reconstructed.GetZ())) {
-                              weight = (1 - fabs(l - x)) * (1 - fabs(m - y)) *
-                                       (1 - fabs(n - z));
-
-                              // image coordinates in tPSF
-                              //(centre,centre,centre) in tPSF is aligned with
-                              //(tx,ty,tz)
-                              int aa, bb, cc;
-                              aa = l - tx + centre;
-                              bb = m - ty + centre;
-                              cc = n - tz + centre;
-
-                              // resulting value
-                              double value = PSF(ii, jj, kk) * weight / sum;
-
-                              // Check that we are in tPSF
-                              if ((aa < 0) || (aa >= dim) || (bb < 0) ||
-                                  (bb >= dim) || (cc < 0) || (cc >= dim)) {
-                                cerr << "Error while trying to populate tPSF. "
-                                     << aa << " " << bb << " " << cc << endl;
-                                cerr << l << " " << m << " " << n << endl;
-                                cerr << tx << " " << ty << " " << tz << endl;
-                                cerr << centre << endl;
-                                tPSF.Write("tPSF.nii");
-                                exit(1);
-                              } else
-                                // update transformed PSF
-                                tPSF(aa, bb, cc) += value;
-                            }
-                } // end of the loop for PSF points
-
-            // store tPSF values
-            for (ii = 0; ii < dim; ii++)
-              for (jj = 0; jj < dim; jj++)
-                for (kk = 0; kk < dim; kk++)
-                  if (tPSF(ii, jj, kk) > 0) {
-                    p.x = ii + tx - centre;
-                    p.y = jj + ty - centre;
-                    p.z = kk + tz - centre;
-                    p.value = tPSF(ii, jj, kk);
-                    slicecoeffs[i][j].push_back(p);
-                  }
-            // cout << " n = " << slicecoeffs[i][j].size() << std::endl;
-          } // end of loop for slice voxels
-
-      // tPSF.Write("tPSF.nii");
-      // PSF.Write("PSF.nii");
-
-      reconstructor->_volcoeffs[inputIndex] = slicecoeffs;
-      reconstructor->_slice_inside_cpu[inputIndex] = slice_inside;
-
-    } // end of loop through the slices
-  }
-
-  // execute
-  void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, reconstructor->_slices.size()),
-                 *this);
-    init.terminate();
-  }
+    // execute
+    void operator()() const {
+	task_scheduler_init init(nt);
+	parallel_for(blocked_range<int>(0, reconstructor->_slices.size()),
+		     *this);
+	init.terminate();
+    }
 };
 
-void irtkReconstruction::CoeffInit() {
-    _volcoeffs.clear();
-    _volcoeffs.resize(_slices.size());
-    
-    _slice_inside_cpu.clear();
-    _slice_inside_cpu.resize(_slices.size());
+void irtkReconstruction::SliceToVolumeRegistration() {
+    if (_slices_regCertainty.size() == 0) {
+	_slices_regCertainty.resize(_slices.size());
+    }
 
-    size_t inputIndex = 0;
-    for (inputIndex = (size_t)0; inputIndex != (size_t)_slices.size(); inputIndex++) {
+    ParallelSliceToVolumeRegistration registration(this, _numThreads);
+    registration();
+}
+
+void runCoeffInit(irtkReconstruction *reconstructor, int start, int end)
+{
+    for (int inputIndex = start; inputIndex != end; ++inputIndex) {
+	
 	bool slice_inside;
 	
+	// current slice
+	// irtkRealImage slice;
+
 	// get resolution of the volume
 	double vx, vy, vz;
-	_reconstructed.GetPixelSize(&vx, &vy, &vz);
-
+	reconstructor->_reconstructed.GetPixelSize(&vx, &vy, &vz);
 	// volume is always isotropic
 	double res = vx;
 
+	// start of a loop for a slice inputIndex
+	//cout << inputIndex << " ";
+
 	// read the slice
-	irtkRealImage& slice = _slices[inputIndex];
+	irtkRealImage &slice = reconstructor->_slices[inputIndex];
 
 	// prepare structures for storage
 	POINT3D p;
 	VOXELCOEFFS empty;
 	SLICECOEFFS slicecoeffs(slice.GetX(),
-				std::vector<VOXELCOEFFS>(slice.GetY(), empty));
+				vector<VOXELCOEFFS>(slice.GetY(), empty));
 
 	// to check whether the slice has an overlap with mask ROI
 	slice_inside = false;
 
 	// PSF will be calculated in slice space in higher resolution
+
 	// get slice voxel size to define PSF
 	double dx, dy, dz;
 	slice.GetPixelSize(&dx, &dy, &dz);
@@ -2045,7 +1469,7 @@ void irtkReconstruction::CoeffInit() {
 
 	// isotropic voxel size of PSF - derived from resolution of reconstructed
 	// volume
-	double size = res / _quality_factor;
+	double size = res / reconstructor->_quality_factor;
 
 	// number of voxels in each direction
 	// the ROI is 2*voxel dimension
@@ -2102,7 +1526,7 @@ void irtkReconstruction::CoeffInit() {
 	    (floor(ceil(sqrt(double(xDim * xDim + yDim * yDim + zDim * zDim)) *
 			size / res) /
 		   2)) *
-            2 +
+	    2 +
 	    1 + 2;
 	// prepare image attributes. Voxel dimension will be taken from the
 	// reconstructed volume
@@ -2131,8 +1555,8 @@ void irtkReconstruction::CoeffInit() {
 		    y = j;
 		    z = 0;
 		    slice.ImageToWorld(x, y, z);
-		    _transformations[inputIndex].Transform(x, y, z);
-		    _reconstructed.WorldToImage(x, y, z);
+		    reconstructor->_transformations[inputIndex].Transform(x, y, z);
+		    reconstructor->_reconstructed.WorldToImage(x, y, z);
 		    tx = round(x);
 		    ty = round(y);
 		    tz = round(z);
@@ -2183,10 +1607,10 @@ void irtkReconstruction::CoeffInit() {
 
 				// x+=(vx-cx); y+=(vy-cy); z+=(vz-cz);
 				// Transform to space of reconstructed volume
-				_transformations[inputIndex].Transform(x, y, z);
-
+				reconstructor->_transformations[inputIndex].Transform(x, y,
+										      z);
 				// Change to image coordinates
-				_reconstructed.WorldToImage(x, y, z);
+				reconstructor->_reconstructed.WorldToImage(x, y, z);
 
 				// determine coefficients of volume voxels for position x,y,z
 				// using linear interpolation
@@ -2207,15 +1631,17 @@ void irtkReconstruction::CoeffInit() {
 				// to find wether the current slice voxel has overlap with ROI
 				bool inside = false;
 				for (l = nx; l <= nx + 1; l++)
-				    if ((l >= 0) && (l < _reconstructed.GetX()))
+				    if ((l >= 0) && (l < reconstructor->_reconstructed.GetX()))
 					for (m = ny; m <= ny + 1; m++)
-					    if ((m >= 0) && (m < _reconstructed.GetY()))
+					    if ((m >= 0) &&
+						(m < reconstructor->_reconstructed.GetY()))
 						for (n = nz; n <= nz + 1; n++)
-						    if ((n >= 0) && (n < _reconstructed.GetZ())) {
+						    if ((n >= 0) &&
+							(n < reconstructor->_reconstructed.GetZ())) {
 							weight = (1 - fabs(l - x)) * (1 - fabs(m - y)) *
 							    (1 - fabs(n - z));
 							sum += weight;
-							if (_mask(l, m, n) == 1) {
+							if (reconstructor->_mask(l, m, n) == 1) {
 							    inside = true;
 							    slice_inside = true;
 							}
@@ -2225,11 +1651,13 @@ void irtkReconstruction::CoeffInit() {
 				    continue;
 				// now calculate the transformed PSF
 				for (l = nx; l <= nx + 1; l++)
-				    if ((l >= 0) && (l < _reconstructed.GetX()))
+				    if ((l >= 0) && (l < reconstructor->_reconstructed.GetX()))
 					for (m = ny; m <= ny + 1; m++)
-					    if ((m >= 0) && (m < _reconstructed.GetY()))
+					    if ((m >= 0) &&
+						(m < reconstructor->_reconstructed.GetY()))
 						for (n = nz; n <= nz + 1; n++)
-						    if ((n >= 0) && (n < _reconstructed.GetZ())) {
+						    if ((n >= 0) &&
+							(n < reconstructor->_reconstructed.GetZ())) {
 							weight = (1 - fabs(l - x)) * (1 - fabs(m - y)) *
 							    (1 - fabs(n - z));
 
@@ -2247,13 +1675,18 @@ void irtkReconstruction::CoeffInit() {
 							// Check that we are in tPSF
 							if ((aa < 0) || (aa >= dim) || (bb < 0) ||
 							    (bb >= dim) || (cc < 0) || (cc >= dim)) {
-							    //ebbrt::kprintf("Error while trying to populate tPSF\n");
+							    cerr << "Error while trying to populate tPSF. "
+								 << aa << " " << bb << " " << cc << endl;
+							    cerr << l << " " << m << " " << n << endl;
+							    cerr << tx << " " << ty << " " << tz << endl;
+							    cerr << centre << endl;
+							    tPSF.Write("tPSF.nii");
 							    exit(1);
 							} else
 							    // update transformed PSF
 							    tPSF(aa, bb, cc) += value;
 						    }
-			    }  // end of the loop for PSF points
+			    } // end of the loop for PSF points
 
 		    // store tPSF values
 		    for (ii = 0; ii < dim; ii++)
@@ -2267,18 +1700,51 @@ void irtkReconstruction::CoeffInit() {
 				    slicecoeffs[i][j].push_back(p);
 				}
 		    // cout << " n = " << slicecoeffs[i][j].size() << std::endl;
-		}  // end of loop for slice voxels
+		} // end of loop for slice voxels
 
-	_volcoeffs[inputIndex] = slicecoeffs;
-	_slice_inside_cpu[inputIndex] = slice_inside;
+	reconstructor->_volcoeffs[inputIndex] = slicecoeffs;
+	reconstructor->_slice_inside_cpu[inputIndex] = slice_inside;
+
+    } // end of loop through the slices
+}
+
+class ParallelCoeffInit {
+public:
+    irtkReconstruction *reconstructor;
+    int nt;
+
+    ParallelCoeffInit(irtkReconstruction *_reconstructor, int _nt)
+	: reconstructor(_reconstructor), nt(_nt) {}
+
+    void operator()(const blocked_range<int> &r) const 
+    {
+	runCoeffInit(reconstructor, r.begin(), r.end());
     }
+
+    // execute
+    void operator()() const {
+	task_scheduler_init init(nt);
+	parallel_for(blocked_range<int>(0, reconstructor->_slices.size()),
+		     *this);
+	init.terminate();
+    }
+};
+void irtkReconstruction::CoeffInit() {
+    _volcoeffs.clear();
+    _volcoeffs.resize(_slices.size());
+    
+    _slice_inside_cpu.clear();
+    _slice_inside_cpu.resize(_slices.size());
+
+    ParallelCoeffInit coeffinit(this, _numThreads);
+    coeffinit();
 
     // prepare image for volume weights, will be needed for Gaussian
     // Reconstruction
     _volume_weights.Initialize(_reconstructed.GetImageAttributes());
     _volume_weights = 0;
 
-    int i, j, n, k;
+    int i, j, n, k, inputIndex;
     POINT3D p;
     for (inputIndex = 0; inputIndex < _slices.size(); ++inputIndex) {
 	for (i = 0; i < _slices[inputIndex].GetX(); i++)
@@ -2306,26 +1772,10 @@ void irtkReconstruction::CoeffInit() {
     }
 
     _average_volume_weight = sum / num;
+
+    //std::printf("_average_volume_weight = %lf\n", _average_volume_weight);
 } // end of CoeffInit()
 
-void irtkReconstruction::SyncCPU() {
-  irtkGenericImage<float> trecon = _reconstructed_gpu;
-
-  // reconstructionGPU->syncCPU(trecon.GetPointerToVoxels());
-  _reconstructed = trecon;
-  printf("Sync done. ready for more...\n");
-}
-
-irtkRealImage irtkReconstruction::GetReconstructedGPU() {
-  irtkGenericImage<float> trecon = _reconstructed_gpu;
-
-  // debug only
-  // reconstructionGPU->syncCPU(trecon.GetPointerToVoxels());
-
-  return trecon;
-}
-
-void irtkReconstruction::GaussianReconstructionGPU() {}
 
 void irtkReconstruction::GaussianReconstruction() {
     
@@ -2403,24 +1853,9 @@ void irtkReconstruction::GaussianReconstruction() {
     for (i = 0; i < voxel_num.size(); i++)
 	if (voxel_num[i] < 0.1 * median)
 	    _small_slices.push_back(i);
-
-    if (_debug || _debugGPU) {
-	cout << "Small slices CPU:";
-	for (i = 0; i < _small_slices.size(); i++)
-	    cout << " " << _small_slices[i];
-	cout << endl;
-    }
-
-    //std::cout << "median = " << median << std::endl;;
-    //std::cout << "_reconstructed = " << sumOneImage(_reconstructed) << std::endl;
-    //std::cout << "_small_slices = " << sumInt(_small_slices) << std::endl;
-  
 }
 
 void irtkReconstruction::InitializeEM() {
-  if (_debug)
-    cout << "InitializeEM" << endl;
-
   _weights.clear();
   _bias.clear();
   _scale_cpu.clear();
@@ -2439,52 +1874,6 @@ void irtkReconstruction::InitializeEM() {
     _slice_weight_cpu.push_back(1);
     //_slice_weight_gpu.push_back(1);
   }
-
-  // TODO CUDA
-  // Find the range of intensities
-  _max_intensity = voxel_limits<irtkRealPixel>::min();
-  _min_intensity = voxel_limits<irtkRealPixel>::max();
-  for (unsigned int i = 0; i < _slices.size(); i++) {
-    // to update minimum we need to exclude padding value
-    irtkRealPixel *ptr = _slices[i].GetPointerToVoxels();
-    for (int ind = 0; ind < _slices[i].GetNumberOfVoxels(); ind++) {
-      if (*ptr > 0) {
-        if (*ptr > _max_intensity)
-          _max_intensity = *ptr;
-        if (*ptr < _min_intensity)
-          _min_intensity = *ptr;
-      }
-      ptr++;
-    }
-  }
-}
-
-void irtkReconstruction::InitializeEMValuesGPU() {
-  if (_debug)
-    cout << "InitializeEMValues" << endl;
-
-  _scale_gpu.clear();
-  _slice_weight_gpu.clear();
-
-  _slice_weight_gpu.assign(_slices.size(), 1);
-  _scale_gpu.assign(_slices.size(), 1);
-  // reconstructionGPU->UpdateScaleVector(_scale_gpu, _slice_weight_gpu);
-
-  // reconstructionGPU->InitializeEMValues();
-}
-
-void irtkReconstruction::InitializeEMGPU() {
-  if (_debug)
-    cout << "InitializeEM" << endl;
-
-  _scale_gpu.clear();
-  _slice_weight_gpu.clear();
-
-  _slice_weight_gpu.assign(_slices.size(), 1);
-  _scale_gpu.assign(_slices.size(), 1);
-  // reconstructionGPU->UpdateScaleVector(_scale_gpu, _slice_weight_gpu);
-
-  // reconstructionGPU->InitializeEMValues();
 
   // TODO CUDA
   // Find the range of intensities
@@ -2539,43 +1928,6 @@ void irtkReconstruction::InitializeEMValues() {
 
 }
 
-void irtkReconstruction::InitializeRobustStatisticsGPU() {
-  if (_debug)
-    cout << "InitializeRobustStatistics" << endl;
-
-  // reconstructionGPU->InitializeRobustStatistics(_sigma_gpu);
-
-  for (unsigned int inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
-    // if slice does not have an overlap with ROI, set its weight to zero
-    if (!_slice_inside_gpu[inputIndex])
-      _slice_weight_gpu[inputIndex] = 0;
-  }
-  // Force exclusion of slices predefined by user
-  for (unsigned int i = 0; i < _force_excluded.size(); i++)
-    _slice_weight_gpu[_force_excluded[i]] = 0;
-
-  // initialize sigma for slice-wise robust statistics
-  _sigma_s_gpu = 0.025;
-  // initialize mixing proportion for inlier class in voxel-wise robust
-  // statistics
-  _mix_gpu = 0.9;
-  // initialize mixing proportion for outlier class in slice-wise robust
-  // statistics
-  _mix_s_gpu = 0.9;
-  // Initialise value for uniform distribution according to the range of
-  // intensities
-  _m_gpu = 1 / (2.1 * _max_intensity - 1.9 * _min_intensity);
-
-  if (_debug || _debugGPU)
-    cout << "Initializing robust statistics GPU: "
-         << "sigma=" << sqrt(_sigma_gpu) << " "
-         << "m=" << _m_gpu << " "
-         << "mix=" << _mix_gpu << " "
-         << "mix_s=" << _mix_s_gpu << endl;
-
-  // reconstructionGPU->UpdateScaleVector(_scale_gpu, _slice_weight_gpu);
-}
-
 void irtkReconstruction::InitializeRobustStatistics() {
   // Initialise parameter of EM robust statistics
   int i, j;
@@ -2623,334 +1975,13 @@ void irtkReconstruction::InitializeRobustStatistics() {
   // Initialise value for uniform distribution according to the range of
   // intensities
   _m_cpu = 1 / (2.1 * _max_intensity - 1.9 * _min_intensity);
-
-  //if (_debug || _debugGPU)
-  /*std::cout << "Initializing robust statistics CPU: "
-	    << "sigma=" << _sigma_cpu << " "
-	    << "sigma_s_cpu=" << _sigma_s_cpu << " "
-	    << "m=" << _m_cpu << " "
-	    << "mix=" << _mix_cpu << " "
-	    << "mix_s=" << _mix_s_cpu << std::endl;*/
-
 }
 
-class ParallelEStep {
-  irtkReconstruction *reconstructor;
-  vector<double> &slice_potential;
-
-public:
-  void operator()(const blocked_range<size_t> &r) const {
-    for (size_t inputIndex = r.begin(); inputIndex < r.end(); ++inputIndex) {
-      // read the current slice
-      irtkRealImage slice = reconstructor->_slices[inputIndex];
-
-      // read current weight image
-      irtkRealImage &w = reconstructor->_weights[inputIndex];
-      //reconstructor->_weights[inputIndex] = 0;
-
-      // alias the current bias image
-      irtkRealImage &b = reconstructor->_bias[inputIndex];
-
-      // identify scale factor
-      double scale = reconstructor->_scale_cpu[inputIndex];
-
-      //std::printf("Weight = ");
-      double num = 0;
-      // Calculate error, voxel weights, and slice potential
-      for (int i = 0; i < slice.GetX(); i++)
-	  for (int j = 0; j < slice.GetY(); j++) {
-	      if (slice(i, j, 0) != -1) {
-		  // bias correct and scale the slice
-		  slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
-
-		  // number of volumetric voxels to which
-		  // current slice voxel contributes
-		  int n = reconstructor->_volcoeffs[inputIndex][i][j].size();
-
-		  // if n == 0, slice voxel has no overlap with volumetric ROI,
-		  // do not process it
-
-		  if ((n > 0) &&
-		      (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0)) {
-		      slice(i, j, 0) -=
-			  reconstructor->_simulated_slices[inputIndex](i, j, 0);
-
-		      // calculate norm and voxel-wise weights
-
-		      // Gaussian distribution for inliers (likelihood)
-		      double g = 0.0;
-			  //reconstructor->G(slice(i, j, 0), reconstructor->_sigma);
-		      // Uniform distribution for outliers (likelihood)
-		      double m = reconstructor->M(reconstructor->_m_cpu);
-
-		      // voxel_wise posterior
-		      double weight = g * reconstructor->_mix_cpu /
-			  (g * reconstructor->_mix_cpu +
-			   m * (1 - reconstructor->_mix_cpu));
-		      //reconstructor->_weights[inputIndex].PutAsDouble(i, j, 0, weight);
-		      w.PutAsDouble(i, j, 0, weight);
-		      //std::printf("%lf ", weight);
-
-		      // calculate slice potentials
-		      if (reconstructor->_simulated_weights[inputIndex](i, j, 0) >
-			  0.99) {
-			  slice_potential[inputIndex] += (1.0 - weight) * (1.0 - weight);
-			  num++;
-		      }
-		  } else {
-		      //reconstructor->_weights[inputIndex].PutAsDouble(i, j, 0, 0);
-		      w.PutAsDouble(i, j, 0, 0);
-		  }
-	      }
-	      	  
-	      //std::cout << i << " " << j << " " << reconstructor->_weights[inputIndex](i, j, 0) << std::endl;
-          }
-
-      // evaluate slice potential
-      if (num > 0) {
-        slice_potential[inputIndex] = sqrt(slice_potential[inputIndex] / num);
-        // std::cout <<  num  << " ";
-      } else
-        slice_potential[inputIndex] = -1; // slice has no unpadded voxels
-    }
-    //std::printf("\n");
-  }
-
-  ParallelEStep(irtkReconstruction *reconstructor,
-                vector<double> &slice_potential)
-      : reconstructor(reconstructor), slice_potential(slice_potential) {}
-
-  // execute
-  void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, reconstructor->_slices.size()),
-                 *this);
-    init.terminate();
-  }
-};
-
-void irtkReconstruction::EStepGPU() {
-    /*
-  // EStep performs calculation of voxel-wise and slice-wise posteriors
-  // (weights)
-  if (_debug)
-    cout << "EStep: " << endl;
-
-  unsigned int inputIndex;
-  vector<float> slice_potential_gpu(_slices.size(), 0);
-  // reconstructionGPU->EStep(_m_gpu, _sigma_gpu, _mix_gpu,
-  // slice_potential_gpu);
-
-  if (_debugGPU) {
-    irtkGenericImage<float> bweights(reconstructionGPU->v_weights.size.x,
-      reconstructionGPU->v_weights.size.y, reconstructionGPU->v_weights.size.z);
-      reconstructionGPU->debugWeights(bweights.GetPointerToVoxels());
-      bweights.Write("testweightGPU.nii");
-  }
-
-  // can stay on CPU
-
-  // To force-exclude slices predefined by a user, set their potentials to -1
-  for (unsigned int i = 0; i < _force_excluded.size(); i++)
-    slice_potential_gpu[_force_excluded[i]] = -1;
-
-  // exclude slices identified as having small overlap with ROI, set their
-  // potentials to -1
-  for (unsigned int i = 0; i < _small_slices.size(); i++)
-    slice_potential_gpu[_small_slices[i]] = -1;
-
-  // these are unrealistic scales pointing at misregistration - exclude the
-  // corresponding slices
-  for (inputIndex = 0; inputIndex < slice_potential_gpu.size(); inputIndex++)
-    if ((_scale_gpu[inputIndex] < 0.2) || (_scale_gpu[inputIndex] > 5)) {
-      slice_potential_gpu[inputIndex] = -1;
-    }
-
-  if (_debug || _debugGPU) {
-    cout << setprecision(4);
-    cout << endl << "Slice potentials GPU: ";
-    for (inputIndex = 0; inputIndex < slice_potential_gpu.size(); inputIndex++)
-      cout << slice_potential_gpu[inputIndex] << " ";
-    cout << endl << "Slice weights GPU: ";
-    for (inputIndex = 0; inputIndex < _slice_weight_gpu.size(); inputIndex++)
-      cout << _slice_weight_gpu[inputIndex] << " ";
-    cout << endl;
-  }
-
-  // Calulation of slice-wise robust statistics parameters.
-  // This is theoretically M-step,
-  // but we want to use latest estimate of slice potentials
-  // to update the parameters
-
-  // Calculate means of the inlier and outlier potentials
-  double sum = 0, den = 0, sum2 = 0, den2 = 0, maxs = 0, mins = 1;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_gpu[inputIndex] >= 0) {
-      // calculate means
-      sum += slice_potential_gpu[inputIndex] * _slice_weight_gpu[inputIndex];
-      den += _slice_weight_gpu[inputIndex];
-      sum2 += slice_potential_gpu[inputIndex] *
-              (1.0 - _slice_weight_gpu[inputIndex]);
-      den2 += (1.0 - _slice_weight_gpu[inputIndex]);
-
-      // calculate min and max of potentials in case means need to be initalized
-      if (slice_potential_gpu[inputIndex] > maxs)
-        maxs = slice_potential_gpu[inputIndex];
-      if (slice_potential_gpu[inputIndex] < mins)
-        mins = slice_potential_gpu[inputIndex];
-    }
-
-  if (den > 0)
-    _mean_s_gpu = sum / den;
-  else
-    _mean_s_gpu = mins;
-
-  if (den2 > 0)
-    _mean_s2_gpu = sum2 / den2;
-  else
-    _mean_s2_gpu = (maxs + _mean_s_gpu) / 2.0;
-
-  // Calculate the variances of the potentials
-  sum = 0;
-  den = 0;
-  sum2 = 0;
-  den2 = 0;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_gpu[inputIndex] >= 0) {
-      sum += (slice_potential_gpu[inputIndex] - _mean_s_gpu) *
-             (slice_potential_gpu[inputIndex] - _mean_s_gpu) *
-             _slice_weight_gpu[inputIndex];
-      den += _slice_weight_gpu[inputIndex];
-
-      sum2 += (slice_potential_gpu[inputIndex] - _mean_s2_gpu) *
-              (slice_potential_gpu[inputIndex] - _mean_s2_gpu) *
-              (1 - _slice_weight_gpu[inputIndex]);
-      den2 += (1 - _slice_weight_gpu[inputIndex]);
-    }
-
-  //_sigma_s
-  if ((sum > 0) && (den > 0)) {
-    _sigma_s_gpu = sum / den;
-    // do not allow too small sigma
-    if (_sigma_s_gpu < _step * _step / 6.28)
-      _sigma_s_gpu = _step * _step / 6.28;
-  } else {
-    _sigma_s_gpu = 0.025;
-    if (_debug) {
-      if (sum <= 0)
-        cout << "All slices are equal. ";
-      if (den < 0) // this should not happen
-        cout << "All slices are outliers. ";
-      cout << "Setting sigma to " << sqrt(_sigma_s_gpu) << endl;
-    }
-  }
-
-  // sigma_s2
-  if ((sum2 > 0) && (den2 > 0)) {
-    _sigma_s2_gpu = sum2 / den2;
-    // do not allow too small sigma
-    if (_sigma_s2_gpu < _step * _step / 6.28)
-      _sigma_s2_gpu = _step * _step / 6.28;
-  } else {
-    _sigma_s2_gpu =
-        (_mean_s2_gpu - _mean_s_gpu) * (_mean_s2_gpu - _mean_s_gpu) / 4;
-    // do not allow too small sigma
-    if (_sigma_s2_gpu < _step * _step / 6.28)
-      _sigma_s2_gpu = _step * _step / 6.28;
-
-    if (_debug) {
-      if (sum2 <= 0)
-        cout << "All slices are equal. ";
-      if (den2 <= 0)
-        cout << "All slices inliers. ";
-      cout << "Setting sigma_s2 to " << sqrt(_sigma_s2_gpu) << endl;
-    }
-  }
-
-  // Calculate slice weights
-  double gs1, gs2;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
-    // Slice does not have any voxels in volumetric ROI
-    if (slice_potential_gpu[inputIndex] == -1) {
-      _slice_weight_gpu[inputIndex] = 0;
-      continue;
-    }
-
-    // All slices are outliers or the means are not valid
-    if ((den <= 0) || (_mean_s2_gpu <= _mean_s_gpu)) {
-      _slice_weight_gpu[inputIndex] = 1;
-      continue;
-    }
-
-    // likelihood for inliers
-    if (slice_potential_gpu[inputIndex] < _mean_s2_gpu)
-      gs1 = G(slice_potential_gpu[inputIndex] - _mean_s_gpu, _sigma_s_gpu);
-    else
-      gs1 = 0;
-
-    // likelihood for outliers
-    if (slice_potential_gpu[inputIndex] > _mean_s_gpu)
-      gs2 = G(slice_potential_gpu[inputIndex] - _mean_s2_gpu, _sigma_s2_gpu);
-    else
-      gs2 = 0;
-
-    // calculate slice weight
-    double likelihood = gs1 * _mix_s_gpu + gs2 * (1 - _mix_s_gpu);
-    if (likelihood > 0)
-      _slice_weight_gpu[inputIndex] = gs1 * _mix_s_gpu / likelihood;
-    else {
-      if (slice_potential_gpu[inputIndex] <= _mean_s_gpu)
-        _slice_weight_gpu[inputIndex] = 1;
-      if (slice_potential_gpu[inputIndex] >= _mean_s2_gpu)
-        _slice_weight_gpu[inputIndex] = 0;
-      if ((slice_potential_gpu[inputIndex] < _mean_s2_gpu) &&
-          (slice_potential_gpu[inputIndex] > _mean_s_gpu)) // should not happen
-        _slice_weight_gpu[inputIndex] = 1;
-    }
-  }
-
-  // Update _mix_s this should also be part of MStep
-  sum = 0;
-  int num = 0;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_gpu[inputIndex] >= 0) {
-      sum += _slice_weight_gpu[inputIndex];
-      num++;
-    }
-
-  if (num > 0)
-    _mix_s_gpu = sum / num;
-  else {
-    cout << "All slices are outliers. Setting _mix_s to 0.9." << endl;
-    _mix_s_gpu = 0.9;
-  }
-
-  if (_debug || _debugGPU) {
-    cout << setprecision(3);
-    cout << "Slice robust statistics parameters GPU: ";
-    cout << "means: " << _mean_s_gpu << " " << _mean_s2_gpu << "  ";
-    cout << "sigmas: " << sqrt(_sigma_s_gpu) << " " << sqrt(_sigma_s2_gpu)
-         << "  ";
-    cout << "proportions: " << _mix_s_gpu << " " << 1 - _mix_s_gpu << endl;
-    cout << "Slice weights GPU: ";
-    for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-      cout << _slice_weight_gpu[inputIndex] << " ";
-    cout << "Slice potential: ";
-      for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-      cout << slice_potential[inputIndex] << " ";
-    cout << endl;
-  }
-    */
-
-  // TODO only slice weight
-  // reconstructionGPU->UpdateSliceWeights(_slice_weight_gpu);
-}
-
-void irtkReconstruction::parallelEStep(vector<double>& slice_potential)
+void runEStep(vector<double>& slice_potential, irtkReconstruction *reconstructor, int start, int end)
 {
-    for(size_t inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
+    for(int inputIndex = start; inputIndex < end; inputIndex++) {
 	// read the current slice
-	irtkRealImage slice = _slices[inputIndex];
+	irtkRealImage slice = reconstructor->_slices[inputIndex];
 	
 	// read current weight image
 	// read the current weight image
@@ -2959,10 +1990,10 @@ void irtkReconstruction::parallelEStep(vector<double>& slice_potential)
 	//_weights[inputIndex] = 0;
 
 	// alias the current bias image
-	irtkRealImage &b = _bias[inputIndex];
+	irtkRealImage &b = reconstructor->_bias[inputIndex];
 
 	// identify scale factor
-	double scale = _scale_cpu[inputIndex];
+	double scale = reconstructor->_scale_cpu[inputIndex];
 
 	double num = 0;
 	// Calculate error, voxel weights, and slice potential
@@ -2974,46 +2005,42 @@ void irtkReconstruction::parallelEStep(vector<double>& slice_potential)
 
 		    // number of volumetric voxels to which
 		    // current slice voxel contributes
-		    int n = _volcoeffs[inputIndex][i][j].size();
+		    int n = reconstructor->_volcoeffs[inputIndex][i][j].size();
 
 		    // if n == 0, slice voxel has no overlap with volumetric ROI,
 		    // do not process it
 
 		    if ((n > 0) &&
-			(_simulated_weights[inputIndex](i, j, 0) > 0)) {
+			(reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0)) {
 			slice(i, j, 0) -=
-			    _simulated_slices[inputIndex](i, j, 0);
+			    reconstructor->_simulated_slices[inputIndex](i, j, 0);
 
 			// calculate norm and voxel-wise weights
 
 			// Gaussian distribution for inliers (likelihood)
 			double g =
-			    G(slice(i, j, 0), _sigma_cpu);
+			    reconstructor->G(slice(i, j, 0), reconstructor->_sigma_cpu);
 			// Uniform distribution for outliers (likelihood)
-			double m = M(_m_cpu);
+			double m = reconstructor->M(reconstructor->_m_cpu);
 
 			// voxel_wise posterior
-			double weight = g * _mix_cpu /
-			    (g * _mix_cpu +
-			     m * (1 - _mix_cpu));
+			double weight = g * reconstructor->_mix_cpu /
+			    (g * reconstructor->_mix_cpu +
+			     m * (1 - reconstructor->_mix_cpu));
 			//w.PutAsDouble(i, j, 0, weight);
 			
 			//_weights[inputIndex].PutAsDouble(i, j, 0, weight);
-			/**************
-			 * For some reason w.PutAsDouble wasn't updating
-			 * the values. Is irtkRealImage &w = _weights above
-			 * not getting a reference back?
-			 ***************/
-			_weights[inputIndex](i, j, 0) = weight;
+
+			reconstructor->_weights[inputIndex](i, j, 0) = weight;
 			// calculate slice potentials
-			if (_simulated_weights[inputIndex](i, j, 0) >
+			if (reconstructor->_simulated_weights[inputIndex](i, j, 0) >
 			    0.99) {
 			    slice_potential[inputIndex] += (1.0 - weight) * (1.0 - weight);
 			    num++;
 			}
 		    } else {
 			//w.PutAsDouble(i, j, 0, 0);
-			_weights[inputIndex](i, j, 0) = 0;
+			reconstructor->_weights[inputIndex](i, j, 0) = 0;
 		    }
 		}
 	    }
@@ -3025,236 +2052,38 @@ void irtkReconstruction::parallelEStep(vector<double>& slice_potential)
     }
 }
 
+class ParallelEStep {
+    irtkReconstruction *reconstructor;
+    vector<double> &slice_potential;
+    int nt;
+public:
+    void operator()(const blocked_range<int> &r) const {
+	runEStep(slice_potential, reconstructor, r.begin(), r.end());
+    }
+
+    ParallelEStep(irtkReconstruction *reconstructor,
+		  vector<double> &slice_potential, int _nt)
+	: reconstructor(reconstructor), slice_potential(slice_potential), nt(_nt) {}
+    
+    // execute
+    void operator()() const {
+	task_scheduler_init init(nt);
+	parallel_for(blocked_range<int>(0, reconstructor->_slices.size()),
+		     *this);
+	init.terminate();
+    }
+};
+
 void irtkReconstruction::EStep() {
-    /*
-  // EStep performs calculation of voxel-wise and slice-wise posteriors
-  // (weights)
-  //if (_debug)
-//    cout << "** EStep:  ** " << endl;
-
-  unsigned int inputIndex;
-  irtkRealImage slice, w, b, sim;
-  int num = 0;
-  vector<double> slice_potential_cpu(_slices.size(), 0);
-  // std::cout << "num Estp CPU: ";
-  ParallelEStep parallelEStep(this, slice_potential_cpu);
-  parallelEStep();
-
-  //std::printf("## _weights = %f\n", sumImage(_weights));
-  
-  if (_debugGPU) {
-    _weights[40].Write("testweightCPU.nii");
-  }
-
-  // To force-exclude slices predefined by a user, set their potentials to -1
-  //for (unsigned int i = 0; i < _force_excluded.size(); i++)
-  //slice_potential_cpu[_force_excluded[i]] = -1;
-
-  // exclude slices identified as having small overlap with ROI, set their
-  // potentials to -1
-  for (unsigned int i = 0; i < _small_slices.size(); i++)
-    slice_potential_cpu[_small_slices[i]] = -1;
-
-  // these are unrealistic scales pointing at misregistration - exclude the
-  // corresponding slices
-  for (inputIndex = 0; inputIndex < slice_potential_cpu.size(); inputIndex++)
-    if ((_scale_cpu[inputIndex] < 0.2) || (_scale_cpu[inputIndex] > 5)) {
-      slice_potential_cpu[inputIndex] = -1;
-    }
-
-  if (_debug || _debugGPU) {
-    cout << setprecision(4);
-    cout << endl << "Slice potentials CPU: ";
-    for (inputIndex = 0; inputIndex < slice_potential_cpu.size(); inputIndex++)
-      cout << slice_potential_cpu[inputIndex] << " ";
-    cout << endl << "Slice weights CPU: ";
-    for (inputIndex = 0; inputIndex < _slice_weight_cpu.size(); inputIndex++)
-      cout << _slice_weight_cpu[inputIndex] << " ";
-    cout << endl;
-  }
-
-  // Calulation of slice-wise robust statistics parameters.
-  // This is theoretically M-step,
-  // but we want to use latest estimate of slice potentials
-  // to update the parameters
-
-  // Calculate means of the inlier and outlier potentials
-  double sum = 0, den = 0, sum2 = 0, den2 = 0, maxs = 0, mins = 1;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_cpu[inputIndex] >= 0) {
-      // calculate means
-      sum += slice_potential_cpu[inputIndex] * _slice_weight_cpu[inputIndex];
-      den += _slice_weight_cpu[inputIndex];
-      sum2 +=
-          slice_potential_cpu[inputIndex] * (1 - _slice_weight_cpu[inputIndex]);
-      den2 += (1 - _slice_weight_cpu[inputIndex]);
-
-      // calculate min and max of potentials in case means need to be initalized
-      if (slice_potential_cpu[inputIndex] > maxs)
-        maxs = slice_potential_cpu[inputIndex];
-      if (slice_potential_cpu[inputIndex] < mins)
-        mins = slice_potential_cpu[inputIndex];
-    }
-
-  if (den > 0)
-    _mean_s_cpu = sum / den;
-  else
-    _mean_s_cpu = mins;
-
-  if (den2 > 0)
-    _mean_s2_cpu = sum2 / den2;
-  else
-    _mean_s2_cpu = (maxs + _mean_s_cpu) / 2;
-
-  // Calculate the variances of the potentials
-  sum = 0;
-  den = 0;
-  sum2 = 0;
-  den2 = 0;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_cpu[inputIndex] >= 0) {
-      sum += (slice_potential_cpu[inputIndex] - _mean_s_cpu) *
-             (slice_potential_cpu[inputIndex] - _mean_s_cpu) *
-             _slice_weight_cpu[inputIndex];
-      den += _slice_weight_cpu[inputIndex];
-
-      sum2 += (slice_potential_cpu[inputIndex] - _mean_s2_cpu) *
-              (slice_potential_cpu[inputIndex] - _mean_s2_cpu) *
-              (1 - _slice_weight_cpu[inputIndex]);
-      den2 += (1 - _slice_weight_cpu[inputIndex]);
-    }
-
-  //_sigma_s
-  if ((sum > 0) && (den > 0)) {
-    _sigma_s_cpu = sum / den;
-    // do not allow too small sigma
-    if (_sigma_s_cpu < _step * _step / 6.28)
-      _sigma_s_cpu = _step * _step / 6.28;
-  } else {
-    _sigma_s_cpu = 0.025;
-    if (_debug) {
-      if (sum <= 0)
-        cout << "All slices are equal. ";
-      if (den < 0) // this should not happen
-        cout << "All slices are outliers. ";
-      cout << "Setting sigma to " << sqrt(_sigma_s_cpu) << endl;
-    }
-  }
-
-  // sigma_s2
-  if ((sum2 > 0) && (den2 > 0)) {
-    _sigma_s2_cpu = sum2 / den2;
-    // do not allow too small sigma
-    if (_sigma_s2_cpu < _step * _step / 6.28)
-      _sigma_s2_cpu = _step * _step / 6.28;
-  } else {
-    _sigma_s2_cpu =
-        (_mean_s2_cpu - _mean_s_cpu) * (_mean_s2_cpu - _mean_s_cpu) / 4;
-    // do not allow too small sigma
-    if (_sigma_s2_cpu < _step * _step / 6.28)
-      _sigma_s2_cpu = _step * _step / 6.28;
-
-    if (_debug) {
-      if (sum2 <= 0)
-        cout << "All slices are equal. ";
-      if (den2 <= 0)
-        cout << "All slices inliers. ";
-      cout << "Setting sigma_s2 to " << sqrt(_sigma_s2_cpu) << endl;
-    }
-  }
-
-  // Calculate slice weights
-  double gs1, gs2;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
-    // Slice does not have any voxels in volumetric ROI
-    if (slice_potential_cpu[inputIndex] == -1) {
-      _slice_weight_cpu[inputIndex] = 0;
-      continue;
-    }
-
-    // All slices are outliers or the means are not valid
-    if ((den <= 0) || (_mean_s2_cpu <= _mean_s_cpu)) {
-      _slice_weight_cpu[inputIndex] = 1;
-      continue;
-    }
-
-    // likelihood for inliers
-    if (slice_potential_cpu[inputIndex] < _mean_s2_cpu)
-      gs1 = G(slice_potential_cpu[inputIndex] - _mean_s_cpu, _sigma_s_cpu);
-    else
-      gs1 = 0;
-
-    // likelihood for outliers
-    if (slice_potential_cpu[inputIndex] > _mean_s_cpu)
-      gs2 = G(slice_potential_cpu[inputIndex] - _mean_s2_cpu, _sigma_s2_cpu);
-    else
-      gs2 = 0;
-
-    // calculate slice weight
-    double likelihood = gs1 * _mix_s_cpu + gs2 * (1 - _mix_s_cpu);
-    if (likelihood > 0)
-      _slice_weight_cpu[inputIndex] = gs1 * _mix_s_cpu / likelihood;
-    else {
-      if (slice_potential_cpu[inputIndex] <= _mean_s_cpu)
-        _slice_weight_cpu[inputIndex] = 1;
-      if (slice_potential_cpu[inputIndex] >= _mean_s2_cpu)
-        _slice_weight_cpu[inputIndex] = 0;
-      if ((slice_potential_cpu[inputIndex] < _mean_s2_cpu) &&
-          (slice_potential_cpu[inputIndex] > _mean_s_cpu)) // should not happen
-        _slice_weight_cpu[inputIndex] = 1;
-    }
-  }
-
-  // Update _mix_s this should also be part of MStep
-  sum = 0;
-  num = 0;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential_cpu[inputIndex] >= 0) {
-      sum += _slice_weight_cpu[inputIndex];
-      num++;
-    }
-
-  if (num > 0)
-    _mix_s_cpu = sum / num;
-  else {
-    cout << "All slices are outliers. Setting _mix_s to 0.9." << endl;
-    _mix_s_cpu = 0.9;
-  }
-    */
-  /*double tempSum = 0.0;
-  for(inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
-      // Calculate error, voxel weights, and slice potential
-      for (int i = 0; i < _slices[inputIndex].GetX(); i++) {
-	  for (int j = 0; j < _slices[inputIndex].GetY(); j++) {
-	      tempSum += _weights[inputIndex](i, j, 0);
-	  }
-      }
-  }
-  std::printf("tempSum = %lf\n", tempSum);*/
-/*
-  if (_debug || _debugGPU) {
-    cout << setprecision(3);
-    cout << "Slice robust statistics parameters CPU: ";
-    cout << "means: " << _mean_s_cpu << " " << _mean_s2_cpu << "  ";
-    cout << "sigmas: " << sqrt(_sigma_s_cpu) << " " << sqrt(_sigma_s2_cpu)
-         << "  ";
-    cout << "proportions: " << _mix_s_cpu << " " << 1 - _mix_s_cpu << endl;
-    cout << "Slice weights  CPU: ";
-    for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-      cout << _slice_weight_cpu[inputIndex] << " ";
-    //cout << "Slice potential: ";
-    //for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    //cout << slice_potential[inputIndex] << " ";
-    cout << endl;
-  }*/
-
-  size_t inputIndex;
+    size_t inputIndex;
     irtkRealImage slice, w, b, sim;
     int num = 0;
     vector<double> slice_potential(_slices.size(), 0);
-    
-    parallelEStep(slice_potential);
-    
+
+
+    ParallelEStep parallelEStep(this, slice_potential, _numThreads);
+    parallelEStep();
+
     // exclude slices identified as having small overlap with ROI, set their
     // potentials to -1
     for (unsigned int i = 0; i < _small_slices.size(); i++)
@@ -3400,113 +2229,17 @@ void irtkReconstruction::EStep() {
     }
 }
 
-class ParallelScale {
-  irtkReconstruction *reconstructor;
-
-public:
-  ParallelScale(irtkReconstruction *_reconstructor)
-      : reconstructor(_reconstructor) {}
-
-  void operator()(const blocked_range<size_t> &r) const {
-    for (size_t inputIndex = r.begin(); inputIndex != r.end(); ++inputIndex) {
-
-      // alias the current slice
-      irtkRealImage &slice = reconstructor->_slices[inputIndex];
-
-      // alias the current weight image
-      irtkRealImage &w = reconstructor->_weights[inputIndex];
-
-      // alias the current bias image
-      irtkRealImage &b = reconstructor->_bias[inputIndex];
-
-      // initialise calculation of scale
-      double scalenum = 0;
-      double scaleden = 0;
-
-      for (int i = 0; i < slice.GetX(); i++)
-        for (int j = 0; j < slice.GetY(); j++)
-          if (slice(i, j, 0) != -1) {
-            if (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0.99) {
-              // scale - intensity matching
-              double eb = exp(-b(i, j, 0));
-              scalenum += w(i, j, 0) * slice(i, j, 0) * eb *
-                          reconstructor->_simulated_slices[inputIndex](i, j, 0);
-              scaleden +=
-                  w(i, j, 0) * slice(i, j, 0) * eb * slice(i, j, 0) * eb;
-            }
-          }
-
-      // calculate scale for this slice
-      if (scaleden > 0)
-        reconstructor->_scale_cpu[inputIndex] = scalenum / scaleden;
-      else
-        reconstructor->_scale_cpu[inputIndex] = 1;
-
-    } // end of loop for a slice inputIndex
-  }
-
-  // execute
-  void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, reconstructor->_slices.size()),
-                 *this);
-    init.terminate();
-  }
-};
-
-void irtkReconstruction::ScaleGPU() {
-  if (_debug)
-    cout << "Scale" << endl;
-
-  // reconstructionGPU->CalculateScaleVector(_scale_gpu);
-  //_scale_gpu = reconstructionGPU->h_scales;
-  if (_debug || _debugGPU) {
-    cout << setprecision(3);
-    cout << "Slice scale GPU= ";
-    for (unsigned int inputIndex = 0; inputIndex < _slices.size(); ++inputIndex)
-      cout << inputIndex << ":" << _scale_gpu[inputIndex] << " ";
-    cout << endl;
-  }
-}
-
-void irtkReconstruction::Scale() {
-    /*
-  if (_debug)
-    cout << "Scale" << endl;
-
-  ParallelScale parallelScale(this);
-  parallelScale();
-
-  // Normalise scales by setting geometric mean to 1
-  // now abandoned
-  // if (!_global_bias_correction)
-  //{
-  //  double product = 1;
-  //  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-  //      product *= _scale[inputIndex];
-  //  product = pow(product, 1.0 / _slices.size());
-  //  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-  //      _scale[inputIndex] /= product;
-  //}
-
-  if (_debug || _debugGPU) {
-    cout << setprecision(3);
-    cout << "Slice scale CPU= ";
-    for (unsigned int inputIndex = 0; inputIndex < _slices.size(); ++inputIndex)
-      cout << inputIndex << ":" << _scale_cpu[inputIndex] << " ";
-    cout << endl;
-    }*/
-
-    size_t inputIndex = 0;
-    for(inputIndex = 0; inputIndex != _slices.size(); inputIndex++) {
+void runScale(irtkReconstruction *reconstructor, int start, int end)
+{
+    for(int inputIndex = start; inputIndex != end; inputIndex++) {
 	// alias the current slice
-	irtkRealImage &slice = _slices[inputIndex];
+	irtkRealImage &slice = reconstructor->_slices[inputIndex];
 
 	// alias the current weight image
-	irtkRealImage &w = _weights[inputIndex];
+	irtkRealImage &w = reconstructor->_weights[inputIndex];
 
 	// alias the current bias image
-	irtkRealImage &b = _bias[inputIndex];
+	irtkRealImage &b = reconstructor->_bias[inputIndex];
 
 	// initialise calculation of scale
 	double scalenum = 0;
@@ -3515,11 +2248,11 @@ void irtkReconstruction::Scale() {
 	for (int i = 0; i < slice.GetX(); i++)
 	    for (int j = 0; j < slice.GetY(); j++)
 		if (slice(i, j, 0) != -1) {
-		    if (_simulated_weights[inputIndex](i, j, 0) > 0.99) {
+		    if (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0.99) {
 			// scale - intensity matching
 			double eb = exp(-b(i, j, 0));
 			scalenum += w(i, j, 0) * slice(i, j, 0) * eb *
-			    _simulated_slices[inputIndex](i, j, 0);
+			    reconstructor->_simulated_slices[inputIndex](i, j, 0);
 			scaleden +=
 			    w(i, j, 0) * slice(i, j, 0) * eb * slice(i, j, 0) * eb;
 		    }
@@ -3527,157 +2260,39 @@ void irtkReconstruction::Scale() {
 
 	// calculate scale for this slice
 	if (scaleden > 0)
-	    _scale_cpu[inputIndex] = scalenum / scaleden;
+	    reconstructor->_scale_cpu[inputIndex] = scalenum / scaleden;
 	else
-	    _scale_cpu[inputIndex] = 1;
+	    reconstructor->_scale_cpu[inputIndex] = 1;
     }
-
-
 }
 
-class ParallelBias {
+class ParallelScale {
   irtkReconstruction *reconstructor;
+    int nt;
 
 public:
-  void operator()(const blocked_range<size_t> &r) const {
-    for (size_t inputIndex = r.begin(); inputIndex < r.end(); ++inputIndex) {
-      // read the current slice
-      irtkRealImage slice = reconstructor->_slices[inputIndex];
+    ParallelScale(irtkReconstruction *_reconstructor, int _nt)
+	: reconstructor(_reconstructor), nt(_nt) {}
 
-      // alias the current weight image
-      irtkRealImage &w = reconstructor->_weights[inputIndex];
-
-      // alias the current bias image
-      irtkRealImage b = reconstructor->_bias[inputIndex];
-
-      // identify scale factor
-      double scale = reconstructor->_scale_cpu[inputIndex];
-
-      // prepare weight image for bias field
-      irtkRealImage wb = w;
-
-      // simulated slice
-      // irtkRealImage sim;
-      // sim.Initialize( slice.GetImageAttributes() );
-      // sim = 0;
-      irtkRealImage wresidual(slice.GetImageAttributes());
-      wresidual = 0;
-
-      for (int i = 0; i < slice.GetX(); i++)
-        for (int j = 0; j < slice.GetY(); j++)
-          if (slice(i, j, 0) != -1) {
-            if (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0.99) {
-              // bias-correct and scale current slice
-              double eb = exp(-b(i, j, 0));
-              slice(i, j, 0) *= (eb * scale);
-
-              // calculate weight image
-              wb(i, j, 0) = w(i, j, 0) * slice(i, j, 0);
-
-              // calculate weighted residual image
-              // make sure it is far from zero to avoid numerical instability
-              // if
-              // ((sim(i,j,0)>_low_intensity_cutoff*_max_intensity)&&(slice(i,j,0)>_low_intensity_cutoff*_max_intensity))
-              if ((reconstructor->_simulated_slices[inputIndex](i, j, 0) > 1) &&
-                  (slice(i, j, 0) > 1)) {
-                wresidual(i, j, 0) =
-                    log(slice(i, j, 0) /
-                        reconstructor->_simulated_slices[inputIndex](i, j, 0)) *
-                    wb(i, j, 0);
-              }
-            } else {
-              // do not take into account this voxel when calculating bias field
-              wresidual(i, j, 0) = 0;
-              wb(i, j, 0) = 0;
-            }
-          }
-
-      // calculate bias field for this slice
-      irtkGaussianBlurring<irtkRealPixel> gb(reconstructor->_sigma_bias);
-      // smooth weighted residual
-      gb.SetInput(&wresidual);
-      gb.SetOutput(&wresidual);
-      gb.Run();
-
-      // smooth weight image
-      gb.SetInput(&wb);
-      gb.SetOutput(&wb);
-      gb.Run();
-
-      // update bias field
-      double sum = 0;
-      double num = 0;
-      for (int i = 0; i < slice.GetX(); i++)
-        for (int j = 0; j < slice.GetY(); j++)
-          if (slice(i, j, 0) != -1) {
-            if (wb(i, j, 0) > 0)
-              b(i, j, 0) += wresidual(i, j, 0) / wb(i, j, 0);
-            sum += b(i, j, 0);
-            num++;
-          }
-
-      // normalize bias field to have zero mean
-      if (!reconstructor->_global_bias_correction) {
-        double mean = 0;
-        if (num > 0)
-          mean = sum / num;
-        for (int i = 0; i < slice.GetX(); i++)
-          for (int j = 0; j < slice.GetY(); j++)
-            if ((slice(i, j, 0) != -1) && (num > 0)) {
-              b(i, j, 0) -= mean;
-            }
-      }
-
-      reconstructor->_bias[inputIndex] = b;
-    }
+  void operator()(const blocked_range<int> &r) const {
+      runScale(reconstructor, r.begin(), r.end());
   }
-
-  ParallelBias(irtkReconstruction *reconstructor)
-      : reconstructor(reconstructor) {}
 
   // execute
   void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, reconstructor->_slices.size()),
+    task_scheduler_init init(nt);
+    parallel_for(blocked_range<int>(0, reconstructor->_slices.size()),
                  *this);
     init.terminate();
   }
 };
 
-void irtkReconstruction::BiasGPU() {
-
-  if (_debug)
-    cout << "Correcting bias ...";
-
-  if (_global_bias_correction)
-    printf("_global_bias_correction is not yet fully implemented in CUDA\n");
-
-  // reconstructionGPU->CorrectBias(_sigma_bias, _global_bias_correction);
-  // //assuming globally constant pixel size
-  if (_debugGPU) {
-    /*irtkGenericImage<float> bimg(reconstructionGPU->v_bias.size.x,
-      reconstructionGPU->v_bias.size.y, reconstructionGPU->v_bias.size.z);
-      reconstructionGPU->debugBias(bimg.GetPointerToVoxels());
-      bimg.Write("biasFieldGPU.nii");*/
-  }
-
-  if (_debug)
-    cout << "done. " << endl;
+void irtkReconstruction::Scale() { 
+    ParallelScale scale(this, _numThreads);
+    scale();
 }
 
 void irtkReconstruction::Bias() {
-    /*
-  if (_debug)
-    cout << "Correcting bias ...";
-
-  ParallelBias parallelBias(this);
-  parallelBias();
-
-  //_bias[79].Write("biasField79CPU.nii");
-
-  if (_debug)
-    cout << "done. " << endl;
-    */
 
     
     size_t inputIndex = 0;
@@ -3768,126 +2383,7 @@ void irtkReconstruction::Bias() {
     }	
 }
 
-class ParallelSuperresolution {
-  irtkReconstruction *reconstructor;
-
-public:
-  irtkRealImage confidence_map;
-  irtkRealImage addon;
-
-  void operator()(const blocked_range<size_t> &r) {
-    for (size_t inputIndex = r.begin(); inputIndex < r.end(); ++inputIndex) {
-      // read the current slice
-      irtkRealImage slice = reconstructor->_slices[inputIndex];
-
-      // read the current weight image
-      irtkRealImage &w = reconstructor->_weights[inputIndex];
-
-      // read the current bias image
-      irtkRealImage &b = reconstructor->_bias[inputIndex];
-
-      // identify scale factor
-      double scale = reconstructor->_scale_cpu[inputIndex];
-
-      // Update reconstructed volume using current slice
-
-      // Distribute error to the volume
-      POINT3D p;
-      for (int i = 0; i < slice.GetX(); i++)
-        for (int j = 0; j < slice.GetY(); j++)
-          if (slice(i, j, 0) != -1) {
-            // bias correct and scale the slice
-            slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
-
-            if (reconstructor->_simulated_slices[inputIndex](i, j, 0) > 0)
-              slice(i, j, 0) -=
-                  reconstructor->_simulated_slices[inputIndex](i, j, 0);
-            else
-              slice(i, j, 0) = 0;
-
-            int n = reconstructor->_volcoeffs[inputIndex][i][j].size();
-            for (int k = 0; k < n; k++) {
-              p = reconstructor->_volcoeffs[inputIndex][i][j][k];
-              addon(p.x, p.y, p.z) +=
-                  p.value * slice(i, j, 0) * w(i, j, 0) *
-                  reconstructor->_slice_weight_cpu[inputIndex];
-              confidence_map(p.x, p.y, p.z) +=
-                  p.value * w(i, j, 0) *
-                  reconstructor->_slice_weight_cpu[inputIndex];
-            }
-          }
-    } // end of loop for a slice inputIndex
-  }
-
-  ParallelSuperresolution(ParallelSuperresolution &x, split)
-      : reconstructor(x.reconstructor) {
-    // Clear addon
-    addon.Initialize(reconstructor->_reconstructed.GetImageAttributes());
-    addon = 0;
-
-    // Clear confidence map
-    confidence_map.Initialize(
-        reconstructor->_reconstructed.GetImageAttributes());
-    confidence_map = 0;
-  }
-
-  void join(const ParallelSuperresolution &y) {
-    addon += y.addon;
-    confidence_map += y.confidence_map;
-  }
-
-  ParallelSuperresolution(irtkReconstruction *reconstructor)
-      : reconstructor(reconstructor) {
-    // Clear addon
-    addon.Initialize(reconstructor->_reconstructed.GetImageAttributes());
-    addon = 0;
-
-    // Clear confidence map
-    confidence_map.Initialize(
-        reconstructor->_reconstructed.GetImageAttributes());
-    confidence_map = 0;
-  }
-
-  // execute
-  void operator()() {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_reduce(blocked_range<size_t>(0, reconstructor->_slices.size()),
-                    *this);
-    init.terminate();
-  }
-};
-
-void irtkReconstruction::SuperresolutionGPU(int iter) {
-  if (_debug)
-    cout << "Superresolution " << iter << endl;
-
-  int i, j, k;
-  irtkRealImage addon, original;
-  // Remember current reconstruction for edge-preserving smoothing
-  original = _reconstructed;
-
-  // reconstructionGPU->Superresolution(iter, _slice_weight_gpu, _adaptive,
-  // _alpha, _min_intensity, _max_intensity, _delta,
-  //_lambda, _global_bias_correction, _sigma_bias, _low_intensity_cutoff);
-  ////assuming isotrop constant voxel size
-
-  // TODO debug confidence map and addon
-  if (_debugGPU) {
-    char buffer[256];
-    irtkGenericImage<float> addonDB;
-    addonDB.Initialize(_reconstructed.GetImageAttributes());
-    // reconstructionGPU->debugAddon(addonDB.GetPointerToVoxels());
-    sprintf(buffer, "addonGPU%i.nii", iter - 1);
-    addonDB.Write(buffer);
-    irtkGenericImage<float> cmap;
-    cmap.Initialize(_reconstructed.GetImageAttributes());
-    // reconstructionGPU->debugConfidenceMap(cmap.GetPointerToVoxels());
-    sprintf(buffer, "cmapGPU%i.nii", iter - 1);
-    cmap.Write(buffer);
-  }
-}
-
-void irtkReconstruction::ParallelAdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
+void irtkReconstruction::AdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
 {
     int dx = _reconstructed.GetX();
     int dy = _reconstructed.GetY();
@@ -3945,7 +2441,7 @@ void irtkReconstruction::ParallelAdaptiveRegularization2(vector<irtkRealImage>& 
     }
 }
 
-void irtkReconstruction::ParallelAdaptiveRegularization1(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
+void irtkReconstruction::AdaptiveRegularization1(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
 {
     int dx = _reconstructed.GetX();
     int dy = _reconstructed.GetY();
@@ -3985,111 +2481,31 @@ void irtkReconstruction::AdaptiveRegularization(int iter, irtkRealImage& origina
     for (int i = 0; i < 13; i++)
 	b.push_back(_reconstructed);
 
-    ParallelAdaptiveRegularization1(b, factor, original);
+    AdaptiveRegularization1(b, factor, original);
 	
     irtkRealImage original2 = _reconstructed;
-    ParallelAdaptiveRegularization2(b, factor, original2);
+    AdaptiveRegularization2(b, factor, original2);
 
     if (_alpha * _lambda / (_delta * _delta) > 0.068) {
-	//ebbrt::kprintf("Warning: regularization might not have smoothing effect! Ensure that alpha*lambda/delta^2 is below 0.068.\n");
+	PRINTF("Warning: regularization might not have smoothing effect! Ensure that alpha*lambda/delta^2 is below 0.068.\n");
     }
 }
 
-void irtkReconstruction::Superresolution(int iter) {
-    /********
-  if (_debug)
-    cout << "Superresolution " << iter << endl;
-
-  int i, j, k;
-  irtkRealImage addon, original;
-
-  // Remember current reconstruction for edge-preserving smoothing
-  original = _reconstructed;
-
-  ParallelSuperresolution parallelSuperresolution(this);
-  parallelSuperresolution();
-  addon = parallelSuperresolution.addon;
-  _confidence_map = parallelSuperresolution.confidence_map;
-  //_confidence4mask = _confidence_map;
-
-  if (_debug) {
-    char buffer[256];
-    sprintf(buffer, "confidence-map%i.nii.gz", iter);
-    _confidence_map.Write(buffer);
-    sprintf(buffer, "addon%i.nii.gz", iter);
-    addon.Write(buffer);
-  }
-
-  if (!_adaptive)
-    for (i = 0; i < addon.GetX(); i++)
-      for (j = 0; j < addon.GetY(); j++)
-        for (k = 0; k < addon.GetZ(); k++)
-          if (_confidence_map(i, j, k) > 0) {
-            // ISSUES if _confidence_map(i, j, k) is too small leading
-            // to bright pixels
-            addon(i, j, k) /= _confidence_map(i, j, k);
-            // this is to revert to normal (non-adaptive) regularisation
-            _confidence_map(i, j, k) = 1;
-          }
-
-  _reconstructed += addon * _alpha; //_average_volume_weight;
-
-  // bound the intensities
-  for (i = 0; i < _reconstructed.GetX(); i++)
-    for (j = 0; j < _reconstructed.GetY(); j++)
-      for (k = 0; k < _reconstructed.GetZ(); k++) {
-        if (_reconstructed(i, j, k) < _min_intensity * 0.9)
-          _reconstructed(i, j, k) = _min_intensity * 0.9;
-        if (_reconstructed(i, j, k) > _max_intensity * 1.1)
-          _reconstructed(i, j, k) = _max_intensity * 1.1;
-      }
-
-  // Smooth the reconstructed image
-  AdaptiveRegularization(iter, original);
-  
-  // Remove the bias in the reconstructed volume compared to previous iteration
-  if (_global_bias_correction)
-    BiasCorrectVolume(original);
-
-  if (_debugGPU) {
-    char buffer[256];
-    sprintf(buffer, "addonCPU%i.nii", iter - 1);
-    addon.Write(buffer);
-
-    sprintf(buffer, "cmapCPU%i.nii", iter - 1);
-    _confidence_map.Write(buffer);
-  }
-
-//  std::printf("_adaptive = %d\naddon = %f\n_confidence_map = %f\n_reconstructed = %f\n_mask = %f\n\n", _adaptive, sumOneImage(addon), sumOneImage(_confidence_map), sumOneImage(_reconstructed), sumOneImage(_mask));
-*/
-
-        int i, j, k;
-    irtkRealImage addon, original;
-    
-    // Remember current reconstruction for edge-preserving smoothing
-    original = _reconstructed;
-
-    // Clear addon
-    addon.Initialize(_reconstructed.GetImageAttributes());
-    addon = 0;
-    
-    // Clear confidence map
-    _confidence_map.Initialize(_reconstructed.GetImageAttributes());
-    _confidence_map = 0;
-
-    for (size_t inputIndex = 0; inputIndex < _slices.size(); ++inputIndex)
+void runSuperresolution(irtkReconstruction *reconstructor, int start, int end, irtkRealImage& addon, irtkRealImage& _confidence_map)
+{
+    for (int inputIndex = start; inputIndex < end; ++inputIndex)
     {
 	// read the current slice
-	irtkRealImage slice = _slices[inputIndex];
+	irtkRealImage slice = reconstructor->_slices[inputIndex];
 
 	// read the current weight image
-	irtkRealImage &w = _weights[inputIndex];
+	irtkRealImage &w = reconstructor->_weights[inputIndex];
 
 	// read the current bias image
-	irtkRealImage &b = _bias[inputIndex];
+	irtkRealImage &b = reconstructor->_bias[inputIndex];
 
 	// identify scale factor
-	double scale = _scale_cpu[inputIndex];
+	double scale = reconstructor->_scale_cpu[inputIndex];
 
 	// Update reconstructed volume using current slice
 
@@ -4101,25 +2517,91 @@ void irtkReconstruction::Superresolution(int iter) {
 		    // bias correct and scale the slice
 		    slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
 
-		    if (_simulated_slices[inputIndex](i, j, 0) > 0)
+		    if (reconstructor->_simulated_slices[inputIndex](i, j, 0) > 0)
 			slice(i, j, 0) -=
-			    _simulated_slices[inputIndex](i, j, 0);
+			    reconstructor->_simulated_slices[inputIndex](i, j, 0);
 		    else
 			slice(i, j, 0) = 0;
 
-		    int n = _volcoeffs[inputIndex][i][j].size();
+		    int n = reconstructor->_volcoeffs[inputIndex][i][j].size();
 		    for (int k = 0; k < n; k++) {
-			p = _volcoeffs[inputIndex][i][j][k];
+			p = reconstructor->_volcoeffs[inputIndex][i][j][k];
 			addon(p.x, p.y, p.z) +=
 			    p.value * slice(i, j, 0) * w(i, j, 0) *
-			    _slice_weight_cpu[inputIndex];
+			    reconstructor->_slice_weight_cpu[inputIndex];
 			_confidence_map(p.x, p.y, p.z) +=
 			    p.value * w(i, j, 0) *
-			    _slice_weight_cpu[inputIndex];
+			    reconstructor->_slice_weight_cpu[inputIndex];
 		    }
 		}
     } // end of loop for a slice inputIndex
+}
 
+class ParallelSuperresolution {
+  irtkReconstruction *reconstructor;
+    int nt;
+
+public:
+    irtkRealImage confidence_map;
+    irtkRealImage addon;
+
+    void operator()(const blocked_range<int> &r) {
+	runSuperresolution(reconstructor, r.begin(), r.end(), addon, confidence_map);
+    }
+    
+    ParallelSuperresolution(ParallelSuperresolution &x, split)
+	: reconstructor(x.reconstructor), nt(x.nt) {
+	// Clear addon
+	addon.Initialize(reconstructor->_reconstructed.GetImageAttributes());
+	addon = 0;
+	
+	// Clear confidence map
+	confidence_map.Initialize(
+	    reconstructor->_reconstructed.GetImageAttributes());
+	confidence_map = 0;
+    }
+
+
+    void join(const ParallelSuperresolution &y) {
+	addon += y.addon;
+	confidence_map += y.confidence_map;
+    }
+
+    ParallelSuperresolution(irtkReconstruction *reconstructor, int _nt)
+	: reconstructor(reconstructor), nt(_nt) {
+	// Clear addon
+	addon.Initialize(reconstructor->_reconstructed.GetImageAttributes());
+	addon = 0;
+	
+	// Clear confidence map
+	confidence_map.Initialize(
+	    reconstructor->_reconstructed.GetImageAttributes());
+	confidence_map = 0;
+    }
+
+  // execute
+    void operator()() {
+	task_scheduler_init init(nt);
+	parallel_reduce(blocked_range<int>(0, reconstructor->_slices.size()),
+			*this);
+	init.terminate();
+    }
+};
+
+void irtkReconstruction::Superresolution(int iter) {
+
+    int i, j, k;
+    irtkRealImage addon, original;
+    
+    // Remember current reconstruction for edge-preserving smoothing
+    original = _reconstructed;
+
+    ParallelSuperresolution parallelSuperresolution(this, _numThreads);
+    parallelSuperresolution();
+
+    addon = parallelSuperresolution.addon;
+    _confidence_map = parallelSuperresolution.confidence_map;
+    
     if (!_adaptive)
 	for (i = 0; i < addon.GetX(); i++)
 	    for (j = 0; j < addon.GetY(); j++)
@@ -4154,186 +2636,37 @@ void irtkReconstruction::Superresolution(int iter) {
     }
 }
 
-class ParallelMStep {
-  irtkReconstruction *reconstructor;
-
-public:
-  double sigma;
-  double mix;
-  double num;
-  double min;
-  double max;
-
-  void operator()(const blocked_range<size_t> &r) {
-    for (size_t inputIndex = r.begin(); inputIndex < r.end(); ++inputIndex) {
-      // read the current slice
-      irtkRealImage slice = reconstructor->_slices[inputIndex];
-
-      // alias the current weight image
-      irtkRealImage &w = reconstructor->_weights[inputIndex];
-
-      // alias the current bias image
-      irtkRealImage &b = reconstructor->_bias[inputIndex];
-
-      // identify scale factor
-      double scale = reconstructor->_scale_cpu[inputIndex];
-
-      // calculate error
-      for (int i = 0; i < slice.GetX(); i++)
-      {
-	  for (int j = 0; j < slice.GetY(); j++)
-	  {
-	      //std::cout << i << " " << j << " " << inputIndex << " " << slice(i,j,0) << " " << w(i,j,0) << " " << b(i,j,0) << " " << scale << std::endl;
-	      
-	      if (slice(i, j, 0) != -1) {
-		  // bias correct and scale the slice
-		  slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
-
-		  // otherwise the error has no meaning - it is equal to slice
-		  // intensity
-		  if (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0.99) {
-
-		      slice(i, j, 0) -=
-			  reconstructor->_simulated_slices[inputIndex](i, j, 0);
-
-		      // sigma and mix
-		      double e = slice(i, j, 0);
-		      sigma += e * e * w(i, j, 0);
-		      mix += w(i, j, 0);
-
-		      //_m
-		      if (e < min)
-			  min = e;
-		      if (e > max)
-			  max = e;
-
-		      num++;
-		  }
-	      }
-	  }
-      }
-    } // end of loop for a slice inputIndex
-  }
-
-  ParallelMStep(ParallelMStep &x, split) : reconstructor(x.reconstructor) {
-    sigma = 0;
-    mix = 0;
-    num = 0;
-    min = 0;
-    max = 0;
-  }
-
-  void join(const ParallelMStep &y) {
-    if (y.min < min)
-      min = y.min;
-    if (y.max > max)
-      max = y.max;
-
-    sigma += y.sigma;
-    mix += y.mix;
-    num += y.num;
-  }
-
-  ParallelMStep(irtkReconstruction *reconstructor)
-      : reconstructor(reconstructor) {
-    sigma = 0;
-    mix = 0;
-    num = 0;
-    min = voxel_limits<irtkRealPixel>::max();
-    max = voxel_limits<irtkRealPixel>::min();
-  }
-
-  // execute
-  void operator()() {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_reduce(blocked_range<size_t>(0, reconstructor->_slices.size()),
-                    *this);
-    init.terminate();
-  }
-};
-
-void irtkReconstruction::MStepGPU(int iter) {
-  // reconstructionGPU->MStep(iter, _step, _sigma_gpu, _mix_gpu, _m_gpu);
-  std::cout.precision(10);
-  if (_debug || _debugGPU) {
-    cout << "Voxel-wise robust statistics parameters GPU: ";
-    cout << "sigma = " << sqrt(_sigma_gpu) << " mix = " << _mix_gpu << " ";
-    cout << " m = " << _m_gpu << endl;
-  }
-}
-
-void irtkReconstruction::MStep(int iter) {
-/********
-  if (_debug)
-    cout << "MStep" << endl;
-
-  //std::cout << "_sigma_cpu " << _sigma_cpu << "_step " << _step << " _mix_cpu " << _mix_cpu << " _m_cpu " << _m_cpu << std::endl;
-
-  ParallelMStep parallelMStep(this);
-  parallelMStep();
-  double sigma = parallelMStep.sigma;
-  double mix = parallelMStep.mix;
-  double num = parallelMStep.num;
-  double min = parallelMStep.min;
-  double max = parallelMStep.max;
-  //printf("CPU sigma %f, mix %f, num %f, min_ %f, max_ %f\n", sigma, mix, num, min, max);
-  //std::cout.precision(6);
-  //std::cout << " CPU sigma " << sigma << " mix " << mix << " num " << num
-  //          << " min_ " << min << " max_ " << max << std::endl;
-  // Calculate sigma and mix
-  if (mix > 0) {
-    _sigma_cpu = sigma / mix;
-  } else {
-    cerr << "Something went wrong: sigma=" << sigma << " mix=" << mix << endl;
-    exit(1);
-  }
-  if (_sigma_cpu < _step * _step / 6.28)
-    _sigma_cpu = _step * _step / 6.28;
-  if (iter > 1)
-    _mix_cpu = mix / num;
-
-  // Calculate m
-  _m_cpu = 1 / (max - min);
-
-  if (_debug || _debugGPU) {
-    cout << "Voxel-wise robust statistics parameters CPU: ";
-    cout << "sigma = " << sqrt(_sigma_cpu) << " mix = " << _mix_cpu << " ";
-    cout << " m = " << _m_cpu << endl;
-  }
-*/
-    double sigma = 0;
-    double mix = 0;
-    double num = 0;
-    double min = voxel_limits<irtkRealPixel>::max();
-    double max = voxel_limits<irtkRealPixel>::min();
-    
-    for (size_t inputIndex = 0; inputIndex < _slices.size(); ++inputIndex) {
+void runMStep(irtkReconstruction *reconstructor, int start, int end, double& sigma, double& mix, double& num, double& min, double& max)
+{
+    for (int inputIndex = start; inputIndex < end; ++inputIndex) {
 	// read the current slice
-	irtkRealImage slice = _slices[inputIndex];
+	irtkRealImage slice = reconstructor->_slices[inputIndex];
 
 	// alias the current weight image
-	irtkRealImage &w = _weights[inputIndex];
+	irtkRealImage &w = reconstructor->_weights[inputIndex];
 
 	// alias the current bias image
-	irtkRealImage &b = _bias[inputIndex];
+	irtkRealImage &b = reconstructor->_bias[inputIndex];
 
 	// identify scale factor
-	double scale = _scale_cpu[inputIndex];
-	
-	// calculate error
-	for (int i = 0; i < slice.GetX(); i++) {
-	    for (int j = 0; j < slice.GetY(); j++) {
+	double scale = reconstructor->_scale_cpu[inputIndex];
 
+	// calculate error
+	for (int i = 0; i < slice.GetX(); i++)
+	{
+	    for (int j = 0; j < slice.GetY(); j++)
+	    {
+		//std::cout << i << " " << j << " " << inputIndex << " " << slice(i,j,0) << " " << w(i,j,0) << " " << b(i,j,0) << " " << scale << std::endl;
 		if (slice(i, j, 0) != -1) {
 		    // bias correct and scale the slice
 		    slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
 
 		    // otherwise the error has no meaning - it is equal to slice
 		    // intensity
-		    if (_simulated_weights[inputIndex](i, j, 0) > 0.99) {
+		    if (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0.99) {
 
 			slice(i, j, 0) -=
-			    _simulated_slices[inputIndex](i, j, 0);
+			    reconstructor->_simulated_slices[inputIndex](i, j, 0);
 
 			// sigma and mix
 			double e = slice(i, j, 0);
@@ -4352,16 +2685,78 @@ void irtkReconstruction::MStep(int iter) {
 	    }
 	}
     } // end of loop for a slice inputIndex
+}
 
+class ParallelMStep {
+    irtkReconstruction *reconstructor;
+    int nt;
+    
+public:
+    double sigma;
+    double mix;
+    double num;
+    double min;
+    double max;
+
+    void operator()(const blocked_range<int> &r) {
+	runMStep(reconstructor, r.begin(), r.end(), sigma, mix, num, min, max);
+    }
+    
+    ParallelMStep(ParallelMStep &x, split) : reconstructor(x.reconstructor), nt(x.nt) {
+	sigma = 0;
+	mix = 0;
+	num = 0;
+	min = 0;
+	max = 0;
+    }
+    
+    void join(const ParallelMStep &y) {
+	if (y.min < min)
+	    min = y.min;
+	if (y.max > max)
+	    max = y.max;
+	
+	sigma += y.sigma;
+	mix += y.mix;
+	num += y.num;
+    }
+    
+    ParallelMStep(irtkReconstruction *reconstructor, int _nt)
+	: reconstructor(reconstructor), nt(_nt) {
+	sigma = 0;
+	mix = 0;
+	num = 0;
+	min = voxel_limits<irtkRealPixel>::max();
+	max = voxel_limits<irtkRealPixel>::min();
+    }
+    
+    // execute
+    void operator()() {
+	task_scheduler_init init(nt);
+	parallel_reduce(blocked_range<int>(0, reconstructor->_slices.size()),
+			*this);
+	init.terminate();
+    }
+};
+
+void irtkReconstruction::MStep(int iter) {
+    ParallelMStep parallelMStep(this, _numThreads);
+    parallelMStep();
+    double sigma = parallelMStep.sigma;
+    double mix = parallelMStep.mix;
+    double num = parallelMStep.num;
+    double min = parallelMStep.min;
+    double max = parallelMStep.max;
     
     if (mix > 0) {
 	_sigma_cpu = sigma / mix;
     } else {
-	//ebbrt::kprintf("Something went wrong: sigma= %fmix=%f\n", sigma, mix);
+	PRINTF("Something went wrong: sigma= %fmix=%f\n", sigma, mix);
 	exit(1);
     }
     if (_sigma_cpu < _step * _step / 6.28)
 	_sigma_cpu = _step * _step / 6.28;
+    
     if (iter > 1)
 	_mix_cpu = mix / num;
     
@@ -4369,167 +2764,6 @@ void irtkReconstruction::MStep(int iter) {
     _m_cpu = 1 / (max - min);
 }
 
-/*class ParallelAdaptiveRegularization1 {
-  irtkReconstruction *reconstructor;
-  vector<irtkRealImage> &b;
-  vector<double> &factor;
-  irtkRealImage &original;
-
-public:
-  ParallelAdaptiveRegularization1(irtkReconstruction *_reconstructor,
-                                  vector<irtkRealImage> &_b,
-                                  vector<double> &_factor,
-                                  irtkRealImage &_original)
-      : reconstructor(_reconstructor), b(_b), factor(_factor),
-        original(_original) {}
-
-  void operator()(const blocked_range<size_t> &r) const {
-    int dx = reconstructor->_reconstructed.GetX();
-    int dy = reconstructor->_reconstructed.GetY();
-    int dz = reconstructor->_reconstructed.GetZ();
-    for (size_t i = r.begin(); i != r.end(); ++i) {
-      // b[i] = reconstructor->_reconstructed;
-      // b[i].Initialize( reconstructor->_reconstructed.GetImageAttributes() );
-
-      int x, y, z, xx, yy, zz;
-      double diff;
-      for (x = 0; x < dx; x++)
-        for (y = 0; y < dy; y++)
-          for (z = 0; z < dz; z++) {
-            xx = x + reconstructor->_directions[i][0];
-            yy = y + reconstructor->_directions[i][1];
-            zz = z + reconstructor->_directions[i][2];
-            if ((xx >= 0) && (xx < dx) && (yy >= 0) && (yy < dy) && (zz >= 0) &&
-                (zz < dz) && (reconstructor->_confidence_map(x, y, z) > 0) &&
-                (reconstructor->_confidence_map(xx, yy, zz) > 0)) {
-              diff = (original(xx, yy, zz) - original(x, y, z)) *
-                     sqrt(factor[i]) / reconstructor->_delta;
-              b[i](x, y, z) = factor[i] / sqrt(1 + diff * diff);
-
-            } else
-              b[i](x, y, z) = 0;
-          }
-    }
-  }
-
-  // execute
-  void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, 13), *this);
-    init.terminate();
-  }
-};
-
-class ParallelAdaptiveRegularization2 {
-  irtkReconstruction *reconstructor;
-  vector<irtkRealImage> &b;
-  vector<double> &factor;
-  irtkRealImage &original;
-
-public:
-  ParallelAdaptiveRegularization2(irtkReconstruction *_reconstructor,
-                                  vector<irtkRealImage> &_b,
-                                  vector<double> &_factor,
-                                  irtkRealImage &_original)
-      : reconstructor(_reconstructor), b(_b), factor(_factor),
-        original(_original) {}
-
-  void operator()(const blocked_range<size_t> &r) const {
-    int dx = reconstructor->_reconstructed.GetX();
-    int dy = reconstructor->_reconstructed.GetY();
-    int dz = reconstructor->_reconstructed.GetZ();
-    for (size_t x = r.begin(); x != r.end(); ++x) {
-      int xx, yy, zz;
-      for (int y = 0; y < dy; y++)
-        for (int z = 0; z < dz; z++) {
-          double val = 0;
-          double valW = 0;
-          double sum = 0;
-          for (int i = 0; i < 13; i++) {
-            xx = x + reconstructor->_directions[i][0];
-            yy = y + reconstructor->_directions[i][1];
-            zz = z + reconstructor->_directions[i][2];
-            if ((xx >= 0) && (xx < dx) && (yy >= 0) && (yy < dy) && (zz >= 0) &&
-                (zz < dz)) {
-              val += b[i](x, y, z) * original(xx, yy, zz) *
-                     reconstructor->_confidence_map(xx, yy, zz);
-              valW +=
-                  b[i](x, y, z) * reconstructor->_confidence_map(xx, yy, zz);
-              sum += b[i](x, y, z);
-            }
-          }
-
-          for (int i = 0; i < 13; i++) {
-            xx = x - reconstructor->_directions[i][0];
-            yy = y - reconstructor->_directions[i][1];
-            zz = z - reconstructor->_directions[i][2];
-            if ((xx >= 0) && (xx < dx) && (yy >= 0) && (yy < dy) && (zz >= 0) &&
-                (zz < dz)) {
-              val += b[i](xx, yy, zz) * original(xx, yy, zz) *
-                     reconstructor->_confidence_map(xx, yy, zz);
-              valW +=
-                  b[i](xx, yy, zz) * reconstructor->_confidence_map(xx, yy, zz);
-              sum += b[i](xx, yy, zz);
-            }
-          }
-
-          val -=
-              sum * original(x, y, z) * reconstructor->_confidence_map(x, y, z);
-          valW -= sum * reconstructor->_confidence_map(x, y, z);
-          val = original(x, y, z) * reconstructor->_confidence_map(x, y, z) +
-                reconstructor->_alpha * reconstructor->_lambda /
-                    (reconstructor->_delta * reconstructor->_delta) * val;
-          valW = reconstructor->_confidence_map(x, y, z) +
-                 reconstructor->_alpha * reconstructor->_lambda /
-                     (reconstructor->_delta * reconstructor->_delta) * valW;
-
-          if (valW > 0) {
-            reconstructor->_reconstructed(x, y, z) = val / valW;
-          } else
-            reconstructor->_reconstructed(x, y, z) = 0;
-        }
-    }
-  }
-
-  // execute
-  void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, reconstructor->_reconstructed.GetX()),
-                 *this);
-    init.terminate();
-  }
-};
-
-void irtkReconstruction::AdaptiveRegularization(int iter,
-                                                irtkRealImage &original) {
-  if (_debug)
-    cout << "AdaptiveRegularization" << endl;
-
-  vector<double> factor(13, 0);
-  for (int i = 0; i < 13; i++) {
-    for (int j = 0; j < 3; j++)
-      factor[i] += fabs(double(_directions[i][j]));
-    factor[i] = 1 / factor[i];
-  }
-
-  vector<irtkRealImage> b; //(13);
-  for (int i = 0; i < 13; i++)
-    b.push_back(_reconstructed);
-
-  ParallelAdaptiveRegularization1 parallelAdaptiveRegularization1(
-      this, b, factor, original);
-  parallelAdaptiveRegularization1();
-
-  irtkRealImage original2 = _reconstructed;
-  ParallelAdaptiveRegularization2 parallelAdaptiveRegularization2(
-      this, b, factor, original2);
-  parallelAdaptiveRegularization2();
-
-  if (_alpha * _lambda / (_delta * _delta) > 0.068) {
-    cerr << "Warning: regularization might not have smoothing effect! Ensure "
-            "that alpha*lambda/delta^2 is below 0.068." << endl;
-  }
-}*/
 
 void irtkReconstruction::BiasCorrectVolume(irtkRealImage &original) {
   // remove low-frequancy component in the reconstructed image which might have
@@ -4596,44 +2830,6 @@ void irtkReconstruction::BiasCorrectVolume(irtkRealImage &original) {
     pm++;
     pi++;
   }
-
-  // residual.Write("biasfield.nii.gz");
-  //_reconstructed.Write("super-biascor.nii.gz");
-}
-
-void irtkReconstruction::EvaluateGPU(int iter) {
-  cout << "Iteration " << iter << ": " << endl;
-
-  cout << "Included slices GPU: ";
-  int sum = 0;
-  unsigned int i;
-  for (i = 0; i < _slices.size(); i++) {
-    if ((_slice_weight_gpu[i] >= 0.5) && (_slice_inside_gpu[i])) {
-      cout << i << " ";
-      sum++;
-    }
-  }
-  cout << endl << "Total GPU: " << sum << endl;
-
-  cout << "Excluded slices  GPU: ";
-  sum = 0;
-  for (i = 0; i < _slices.size(); i++) {
-    if ((_slice_weight_gpu[i] < 0.5) && (_slice_inside_gpu[i])) {
-      cout << i << " ";
-      sum++;
-    }
-  }
-  cout << endl << "Total GPU: " << sum << endl;
-
-  cout << "Outside slices GPU: ";
-  sum = 0;
-  for (i = 0; i < _slices.size(); i++) {
-    if (!(_slice_inside_gpu[i])) {
-      cout << i << " ";
-      sum++;
-    }
-  }
-  cout << endl << "Total GPU: " << sum << endl;
 }
 
 void irtkReconstruction::Evaluate(int iter) {
@@ -4658,150 +2854,16 @@ void irtkReconstruction::Evaluate(int iter) {
       sum++;
     }
   }
-  //cout << endl << "Total CPU: " << sum << endl;
 
-  //cout << "Outside slices CPU: ";
   sum = 0;
   for (i = 0; i < _slices.size(); i++) {
     if (!(_slice_inside_cpu[i])) {
-//	cout << i << " ";
       sum++;
     }
   }
-  //cout << endl << "Total CPU: " << sum << endl;
 }
 
-class ParallelNormaliseBias {
-  irtkReconstruction *reconstructor;
-
-public:
-  irtkRealImage bias;
-
-  void operator()(const blocked_range<size_t> &r) {
-    for (size_t inputIndex = r.begin(); inputIndex < r.end(); ++inputIndex) {
-
-      if (reconstructor->_debug) {
-        cout << inputIndex << " ";
-      }
-
-      // alias the current slice
-      irtkRealImage &slice = reconstructor->_slices[inputIndex];
-
-      // read the current bias image
-      irtkRealImage b = reconstructor->_bias[inputIndex];
-
-      // read current scale factor
-      double scale = reconstructor->_scale_cpu[inputIndex];
-
-      irtkRealPixel *pi = slice.GetPointerToVoxels();
-      irtkRealPixel *pb = b.GetPointerToVoxels();
-      for (int i = 0; i < slice.GetNumberOfVoxels(); i++) {
-        if ((*pi > -1) && (scale > 0))
-          *pb -= log(scale);
-        pb++;
-        pi++;
-      }
-
-      // Distribute slice intensities to the volume
-      POINT3D p;
-      for (int i = 0; i < slice.GetX(); i++)
-        for (int j = 0; j < slice.GetY(); j++)
-          if (slice(i, j, 0) != -1) {
-            // number of volume voxels with non-zero coefficients for current
-            // slice voxel
-            int n = reconstructor->_volcoeffs[inputIndex][i][j].size();
-            // add contribution of current slice voxel to all voxel volumes
-            // to which it contributes
-            for (int k = 0; k < n; k++) {
-              p = reconstructor->_volcoeffs[inputIndex][i][j][k];
-              bias(p.x, p.y, p.z) += p.value * b(i, j, 0);
-            }
-          }
-      // end of loop for a slice inputIndex
-    }
-  }
-
-  ParallelNormaliseBias(ParallelNormaliseBias &x, split)
-      : reconstructor(x.reconstructor) {
-    bias.Initialize(reconstructor->_reconstructed.GetImageAttributes());
-    bias = 0;
-  }
-
-  void join(const ParallelNormaliseBias &y) { bias += y.bias; }
-
-  ParallelNormaliseBias(irtkReconstruction *reconstructor)
-      : reconstructor(reconstructor) {
-    bias.Initialize(reconstructor->_reconstructed.GetImageAttributes());
-    bias = 0;
-  }
-
-  // execute
-  void operator()() {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_reduce(blocked_range<size_t>(0, reconstructor->_slices.size()),
-                    *this);
-    init.terminate();
-  }
-};
-
-void irtkReconstruction::NormaliseBiasGPU(int iter) {}
-
 void irtkReconstruction::NormaliseBias(int iter) {
-    /*
-  if (_debug)
-    cout << "Normalise Bias ... ";
-
-  ParallelNormaliseBias parallelNormaliseBias(this);
-  parallelNormaliseBias();
-  irtkRealImage bias = parallelNormaliseBias.bias;
-
-  // normalize the volume by proportion of contributing slice voxels for each
-  // volume voxel
-  bias /= _volume_weights;
-
-  if (_debug)
-    cout << "done." << endl;
-
-  MaskImage(bias, 0);
-  irtkRealImage m = _mask;
-  irtkGaussianBlurring<irtkRealPixel> gb(_sigma_bias);
-  gb.SetInput(&bias);
-  gb.SetOutput(&bias);
-  gb.Run();
-  gb.SetInput(&m);
-  gb.SetOutput(&m);
-  gb.Run();
-  bias /= m;
-
-  if (_debugGPU) {
-    char buffer_[256];
-    sprintf(buffer_, "smaskCPU%i.nii", iter);
-    m.Write(buffer_);
-  }
-
-  if (_debug) {
-    char buffer[256];
-    sprintf(buffer, "averagebias%i.nii.gz", iter);
-    bias.Write(buffer);
-  }
-
-  irtkRealPixel *pi, *pb;
-  pi = _reconstructed.GetPointerToVoxels();
-  pb = bias.GetPointerToVoxels();
-  for (int i = 0; i < _reconstructed.GetNumberOfVoxels(); i++) {
-    if (*pi != -1)
-      *pi /= exp(-(*pb));
-    pi++;
-    pb++;
-  }
-  if (_debugGPU) {
-    char buffer[256];
-    sprintf(buffer, "nbiasCPU%i.nii", iter);
-    bias.Write(buffer);
-  }
-    */
-
-    
     irtkRealImage bias;
     bias.Initialize(_reconstructed.GetImageAttributes());
     bias = 0;
@@ -4869,8 +2931,6 @@ void irtkReconstruction::NormaliseBias(int iter) {
     }
 }
 
-/* Set/Get/Save operations */
-
 void irtkReconstruction::ReadTransformation(char *folder) {
   int n = _slices.size();
   char name[256];
@@ -4903,52 +2963,6 @@ void irtkReconstruction::ReadTransformation(char *folder) {
   }
 }
 
-void irtkReconstruction::replaceSlices(string folder) {
-  // replaces slices with already transformed slices
-  // renders every stack operation before useless -- TODO
-
-  // stack Id and transformations are preserved
-  // The slices have to be in the correct order in the folder!
-
-  // get file list from boost
-/*  path p(folder);
-  if (exists(p)) {
-    vector<path> files;
-    copy(directory_iterator(p), directory_iterator(), back_inserter(files));
-
-    vector<irtkRealImage> newSlices;
-    vector<double> thickness;
-    vector<int> stackId;
-    vector<irtkRigidTransformation> transforms;
-
-    // TODO ITK IRTK orientation mismatch?
-    std::cout << "replacing every slice!!! " << std::endl;
-    for (int i = 0; i < files.size(); i++) {
-      // std::cout << files[i] << std::endl;
-      irtkRealImage newSlice;
-      newSlice.Read(files[i].string().c_str());
-      // newSlice.Write(files[i].string().c_str());
-      // newSlice.Read(files[i].string().c_str());
-      // double axis[3];
-
-      newSlices.push_back(newSlice);
-      stackId.push_back(0); // TODO
-
-      thickness.push_back(4.0);
-      irtkTransformation *transformation = new irtkRigidTransformation;
-      irtkRigidTransformation *rigidTransf =
-          dynamic_cast<irtkRigidTransformation *>(transformation);
-      // rigidTransf->Print();
-      transforms.push_back(*rigidTransf);
-      delete rigidTransf;
-    }
-
-    SetSlicesAndTransformations(newSlices, transforms, stackId, thickness);
-
-  } else {
-    cout << p << " does not exist\n";
-    }*/
-}
 
 void irtkReconstruction::SetReconstructed(irtkRealImage &reconstructed) {
   _reconstructed = reconstructed;
@@ -5065,9 +3079,7 @@ void irtkReconstruction::SlicesInfo(const char *filename) {
   info.close();
 }
 
-/* end Set/Get/Save operations */
 
-/* Package specific functions */
 void irtkReconstruction::SplitImage(irtkRealImage image, int packages,
                                     vector<irtkRealImage> &stacks) {
   irtkImageAttributes attr = image.GetImageAttributes();
@@ -5132,7 +3144,7 @@ void irtkReconstruction::SplitImage(irtkRealImage image, int packages,
     // stack.Write(buffer);
     stacks.push_back(stack);
   }
-  cout << "done." << endl;
+//  cout << "done." << endl;
 }
 
 void irtkReconstruction::SplitImageEvenOdd(irtkRealImage image, int packages,
@@ -5151,7 +3163,7 @@ void irtkReconstruction::SplitImageEvenOdd(irtkRealImage image, int packages,
     stacks.push_back(packs2[1]);
   }
 
-  cout << "done." << endl;
+//  cout << "done." << endl;
 }
 
 void irtkReconstruction::SplitImageEvenOddHalf(irtkRealImage image,
@@ -5307,9 +3319,7 @@ void irtkReconstruction::PackageToVolume(vector<irtkRealImage> &stacks,
   }
 }
 
-/* end Package specific functions */
 
-/* Utility functions */
 
 void irtkReconstruction::CropImage(irtkRealImage &image, irtkRealImage &mask) {
   // Crops the image according to the mask
@@ -5423,10 +3433,6 @@ void irtkReconstruction::InvertStackTransformations(
   }
 }
 
-void irtkReconstruction::MaskVolumeGPU() {
-  // reconstructionGPU->maskVolume();
-}
-
 void irtkReconstruction::MaskVolume() {
   irtkRealPixel *pr = _reconstructed.GetPointerToVoxels();
   irtkRealPixel *pm = _mask.GetPointerToVoxels();
@@ -5467,6 +3473,218 @@ void irtkReconstruction::Rescale(irtkRealImage &img, double max) {
     if (ptr[i] > 0)
       ptr[i] = double(ptr[i]) / double(max_val) * max;
 }
-/* end Utility functions */
+
+void irtkReconstruction::RunRecon(int iterations, double delta, double lastIterLambda, int rec_iterations_first, int rec_iterations_last, bool intensity_matching, double lambda, int levels)
+{
+    int i;
+    int rec_iterations;
+    float timers[13] = { 0 };
+    struct timeval tstart, tend;
+    struct timeval lstart, lend;  
+    float sumCompute = 0.0;
+    float tempTime = 0.0;
+    gettimeofday(&tstart, NULL);
+
+    for (int iter = 0; iter < iterations; iter++) {
+	// perform slice-to-volume registrations - skip the first iteration
+	if (iter > 0) {
+	    gettimeofday(&lstart, NULL);
+	    SliceToVolumeRegistration();
+	    gettimeofday(&lend, NULL);
+	    tempTime = (lend.tv_sec - lstart.tv_sec) +
+		((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	    timers[SLICETOVOLUMEREGISTRATION] += tempTime;
+	    sumCompute += tempTime;
+	}
+
+	if (iter == (iterations - 1)) {
+	    SetSmoothingParameters(delta, lastIterLambda);
+	} else {
+	    double l = lambda;
+	    for (i = 0; i < levels; i++) {
+		if (iter == iterations * (levels - i - 1) / levels) {
+		    SetSmoothingParameters(delta, l);
+		}
+		l *= 2;
+	    }
+	}
+
+	// Use faster reconstruction during iterations and slower for final
+	// reconstruction
+	if (iter < (iterations - 1)) {
+	    SpeedupOn();
+	} else {
+	    SpeedupOff();
+	}
+
+	// Initialise values of weights, scales and bias fields
+	gettimeofday(&lstart, NULL);
+	InitializeEMValues();
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) +
+	    ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	timers[INITIALIZEEMVALUES] += tempTime;
+	sumCompute += tempTime;
+
+	// Calculate matrix of transformation between voxels of slices and volume
+	gettimeofday(&lstart, NULL);
+	CoeffInit();
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) +
+	    ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	timers[COEFFINIT] += tempTime;
+	sumCompute += tempTime;
+
+	// Initialize reconstructed image with Gaussian weighted reconstruction
+	gettimeofday(&lstart, NULL);
+	GaussianReconstruction();
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) +
+	    ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	timers[GAUSSIANRECONSTRUCTION] += tempTime;
+	sumCompute += tempTime;
+
+	// Simulate slices (needs to be done after Gaussian reconstruction)
+	gettimeofday(&lstart, NULL);
+	SimulateSlices();
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) +
+	    ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	timers[SIMULATESLICES] += tempTime;
+	sumCompute += tempTime;
+
+	gettimeofday(&lstart, NULL);
+	InitializeRobustStatistics();
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) +
+	    ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	timers[INITIALIZEROBUSTSTATISTICS] += tempTime;
+	sumCompute += tempTime;
+
+	gettimeofday(&lstart, NULL);
+	EStep();
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) +
+	    ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	timers[ESTEP] += tempTime;
+	sumCompute += tempTime;
+
+	// number of reconstruction iterations
+	if (iter == (iterations - 1)) {
+	    rec_iterations = rec_iterations_last;
+	} else
+	    rec_iterations = rec_iterations_first;
+
+	// reconstruction iterations
+	i = 0;
+	for (i = 0; i < rec_iterations; i++) {
+	    if (intensity_matching) {
+		// calculate bias fields
+		gettimeofday(&lstart, NULL);
+		// calculate scales
+		Scale();
+		gettimeofday(&lend, NULL);
+		tempTime = (lend.tv_sec - lstart.tv_sec) +
+		    ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+		timers[SCALE] += tempTime;
+		sumCompute += tempTime;
+	    }
+	
+	    // MStep and update reconstructed volume
+	    gettimeofday(&lstart, NULL);
+	    Superresolution(i + 1);
+	    gettimeofday(&lend, NULL);
+	    tempTime = (lend.tv_sec - lstart.tv_sec) +
+		((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	    timers[SUPERRESOLUTION] += tempTime;
+	    sumCompute += tempTime;
+
+	    // Simulate slices (needs to be done
+	    // after the update of the reconstructed volume)
+	    gettimeofday(&lstart, NULL);
+	    SimulateSlices();
+	    gettimeofday(&lend, NULL);
+	    tempTime = (lend.tv_sec - lstart.tv_sec) +
+		((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	    timers[SIMULATESLICES] += tempTime;
+	    sumCompute += tempTime;
+            
+	    gettimeofday(&lstart, NULL);
+	    MStep(i + 1);
+	    gettimeofday(&lend, NULL);
+	    tempTime = (lend.tv_sec - lstart.tv_sec) +
+		((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	    timers[MSTEP] += tempTime;
+	    sumCompute += tempTime;
+
+	    gettimeofday(&lstart, NULL);
+	    EStep();
+	    gettimeofday(&lend, NULL);
+	    tempTime = (lend.tv_sec - lstart.tv_sec) +
+		((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	    timers[ESTEP] += tempTime;
+	    sumCompute += tempTime;
+	} // end of reconstruction iterations
+
+	// Mask reconstructed image to ROI given by the mask
+	gettimeofday(&lstart, NULL);
+	MaskVolume();
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) +
+	    ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	timers[MASKVOLUME] += tempTime;
+	sumCompute += tempTime;
+
+	gettimeofday(&lstart, NULL);
+	Evaluate(iter);
+	gettimeofday(&lend, NULL);
+	tempTime = (lend.tv_sec - lstart.tv_sec) +
+	    ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+	timers[EVALUATE] += tempTime;
+	sumCompute += tempTime;
+    } // end of interleaved registration-reconstruction iterations
+  
+    gettimeofday(&lstart, NULL);
+    RestoreSliceIntensities();
+    ScaleVolume();
+    gettimeofday(&lend, NULL);
+    tempTime = (lend.tv_sec - lstart.tv_sec) +
+	((lend.tv_usec - lstart.tv_usec) / 1000000.0);
+    timers[RESTORESLICE] += tempTime;
+    sumCompute += tempTime;
+
+    gettimeofday(&tend, NULL);
+
+    FORPRINTF("SliceToVolumeRegistration: %lf seconds\n", timers[SLICETOVOLUMEREGISTRATION]);
+    FORPRINTF("InitializeEMValues: %lf seconds\n", timers[INITIALIZEEMVALUES]);
+    FORPRINTF("CoeffInit: %lf seconds\n", timers[COEFFINIT]);
+    FORPRINTF("GaussianReconstruction: %lf seconds\n", timers[GAUSSIANRECONSTRUCTION]);
+    FORPRINTF("SimulateSlices: %lf seconds\n", timers[SIMULATESLICES]);
+    FORPRINTF("InitializeRobustStatistics: %lf seconds\n", timers[INITIALIZEROBUSTSTATISTICS]);
+    FORPRINTF("EStep: %lf seconds\n", timers[ESTEP]);
+    FORPRINTF("Scale: %lf seconds\n", timers[SCALE]);
+    FORPRINTF("Superresolution: %lf seconds\n", timers[SUPERRESOLUTION]);
+    FORPRINTF("MStep: %lf seconds\n", timers[MSTEP]);
+    FORPRINTF("MaskVolume: %lf seconds\n", timers[MASKVOLUME]);
+    FORPRINTF("Evaluate: %lf seconds\n", timers[EVALUATE]);
+    FORPRINTF("RestoreSliceIntensities and ScaleVolume: %lf seconds\n", timers[RESTORESLICE]);
+
+    FORPRINTF("compute time: %lf seconds\n", (tend.tv_sec - tstart.tv_sec) + ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
+    FORPRINTF("sumCompute: %lf seconds\n", sumCompute);
+  
+    float temp2 = 0.0;
+    for(i=0;i<13;i++)
+    {
+	temp2 += timers[i];
+    }
+    FORPRINTF("sumTimers: %lf seconds\n", temp2);
+  
+    FORPRINTF("checksum _reconstructed = %lf\n", SumRecon());
+
+    // save final result
+    //reconstructed = GetReconstructed();
+    //reconstructed.Write(outputName.c_str());
+
+}
 
 #pragma GCC diagnostic pop

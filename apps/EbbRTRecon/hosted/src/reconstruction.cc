@@ -159,7 +159,7 @@ int main(int argc, char **argv) {
         "and then into odd and even slices within each package during "
         "registration iteration 2. The method will then continue with slice to "
         " volume approach. [Default: slice to volume registration only]")(
-        "iterations", po::value<int>(&iterations)->default_value(4),
+        "iterations", po::value<int>(&iterations)->default_value(1),
         "Number of registration-reconstruction iterations.")(
         "sigma", po::value<double>(&sigma)->default_value(12.0),
         "Stdev for bias field. [Default: 12mm]")(
@@ -281,20 +281,20 @@ int main(int argc, char **argv) {
 
     // set CPU  threads
     if (numThreads > 0) {
-      cout << "numThreads = " << numThreads << endl;
+//      cout << "numThreads = " << numThreads << endl;
     } else {
-      cout << "Using task_scheduler_init::automatic number of threads" << endl;
+	//    cout << "Using task_scheduler_init::automatic number of threads" << endl;
     }
   }
 
-  cout << "Reconstructed volume name ... " << outputName << endl;
+//  cout << "Reconstructed volume name ... " << outputName << endl;
   nStacks = inputStacks.size();
-  cout << "Number of stacks ... " << nStacks << endl;
+  //cout << "Number of stacks ... " << nStacks << endl;
 
   float tmp_motionestimate = FLT_MAX;
   for (i = 0; i < nStacks; i++) {
     stack.Read(inputStacks[i].c_str());
-    cout << "Reading stack ... " << inputStacks[i] << endl;
+    //cout << "Reading stack ... " << inputStacks[i] << endl;
     stacks.push_back(stack);
   }
 
@@ -322,7 +322,7 @@ int main(int argc, char **argv) {
     delete rigidTransf;
   }
 
-  std::printf("*********** Create() ***********\n");
+  //std::printf("*********** Create() ***********\n");
 
   auto reconstruction = irtkReconstructionEbb::Create();
   reconstruction->setNumThreads(numThreads);
@@ -339,8 +339,8 @@ int main(int argc, char **argv) {
 
   if (num_input_stacks_tuner > 0) {
     nStacks = num_input_stacks_tuner;
-    cout << "actually used stacks for tuner test .... "
-         << num_input_stacks_tuner << endl;
+//    cout << "actually used stacks for tuner test .... "
+    //       << num_input_stacks_tuner << endl;
   }
 
   number_of_force_excluded_slices = force_excluded.size();
@@ -351,21 +351,21 @@ int main(int argc, char **argv) {
     stack_transformations.erase(stack_transformations.begin() +
                                     num_input_stacks_tuner,
                                 stack_transformations.end());
-    std::cout << "stack sizes: " << nStacks << " " << stacks.size() << " "
-              << thickness.size() << " " << stack_transformations.size()
-              << std::endl;
+//    std::cout << "stack sizes: " << nStacks << " " << stacks.size() << " "
+    //            << thickness.size() << " " << stack_transformations.size()
+    //        << std::endl;
   }
 
   // Initialise 2*slice thickness if not given by user
   if (thickness.size() == 0) {
-    cout << "Slice thickness is ";
+//    cout << "Slice thickness is ";
     for (i = 0; i < nStacks; i++) {
       double dx, dy, dz;
       stacks[i].GetPixelSize(&dx, &dy, &dz);
       thickness.push_back(dz * 2);
-      cout << thickness[i] << " ";
+      //    cout << thickness[i] << " ";
     }
-    cout << "." << endl;
+    //cout << "." << endl;
   }
 
   // Output volume
@@ -447,15 +447,15 @@ int main(int argc, char **argv) {
 
   // to redirect output from screen to text files
   if (T1PackageSize == 0 && sfolder.empty()) {
-    std::cout << "StackRegistrations start" << std::endl;
+//    std::cout << "StackRegistrations start" << std::endl;
     // volumetric registration
     reconstruction->StackRegistrations(stacks, stack_transformations,
                                        templateNumber);
   }
 
-  cout << endl;
+//  cout << endl;
 
-  std::cout << "reconstruction->CreateAverage" << std::endl;
+//  std::cout << "reconstruction->CreateAverage" << std::endl;
   average = reconstruction->CreateAverage(stacks, stack_transformations);
 
   // Mask is transformed to the all other stacks and they are cropped
@@ -474,7 +474,7 @@ int main(int argc, char **argv) {
     // volumetric registration
     reconstruction->StackRegistrations(stacks, stack_transformations,
                                        templateNumber);
-    cout << endl;
+//    cout << endl;
   }
 
   // Rescale intensities of the stacks to have the same average
@@ -517,30 +517,18 @@ int main(int argc, char **argv) {
   // Initialise data structures for EM
   reconstruction->InitializeEM();
 
-  std::cout << "*************** packages.size() " << packages.size()
-            << std::endl;
+//  std::cout << "*************** packages.size() " << packages.size()
+  //          << std::endl;
 
-  iterations = __ITERS__;
-  std::printf("lambda = %f delta = %f intensity_matching = %d useCPU = %d disableBiasCorr = %d sigma = %f global_bias_correction = %d lastIterLambda = %f iterations = %d levels = %d\n", lambda, delta, intensity_matching, useCPU, disableBiasCorr, sigma, global_bias_correction, lastIterLambda, iterations, levels);
+
+//  std::printf("lambda = %f delta = %f intensity_matching = %d useCPU = %d disableBiasCorr = %d sigma = %f global_bias_correction = %d lastIterLambda = %f iterations = %d levels = %d\n", lambda, delta, intensity_matching, useCPU, disableBiasCorr, sigma, global_bias_correction, lastIterLambda, iterations, levels);
 
 #ifndef __EBB__
 
-  std::printf("runRecon\n");
+//  std::printf("runRecon\n");
   reconstruction->RunRecon(iterations, delta, lastIterLambda, rec_iterations_first, rec_iterations_last, intensity_matching, lambda, levels);
 
-  
-  gettimeofday(&totend, NULL);
-  std::printf("total time: %lf seconds\n",
-              (totend.tv_sec - totstart.tv_sec) +
-	      ((totend.tv_usec - totstart.tv_usec) / 1000000.0));
-
 #else  
-
-/*#ifdef __TEST__
-  std::printf("TEST\n");
-#else
-  std::printf("ab c\n");
-  #endif*/
 
   int numNodes = 1;
   reconstruction->setNumNodes(numNodes);
@@ -551,21 +539,21 @@ int main(int argc, char **argv) {
   /********************* ebbrt ******************/
   for(i = 0; i < numNodes; i++)
   {
-      auto node_desc = node_allocator->AllocateNode(bindir.string(), 2, 2, 8);
+      auto node_desc = node_allocator->AllocateNode(bindir.string(), numThreads, 1, 8);
       node_desc.NetworkId().Then([reconstruction, &c](Future<Messenger::NetworkId> f) 
       {
 	      // pass context c
-	      std::printf("*******pinging *********\n");
+//	      std::printf("*******pinging *********\n");
 	      auto nid = f.Get();
 	      reconstruction->addNid(nid);
       });
   }
 
-  reconstruction->waitNodes().Then([reconstruction](ebbrt::Future<void> f) 
+  reconstruction->waitNodes().Then([reconstruction, iterations](ebbrt::Future<void> f) 
   {
       f.Get();
       std::cout << "all nodes initialized" << std::endl;
-      ebbrt::event_manager->Spawn([reconstruction]() { reconstruction->SendRecon(); });
+      ebbrt::event_manager->Spawn([reconstruction, iterations]() { reconstruction->SendRecon(iterations); });
   });
 
   reconstruction->waitReceive().Then([&c](ebbrt::Future<void> f)
@@ -580,6 +568,11 @@ int main(int argc, char **argv) {
 
 #endif
 
+  gettimeofday(&totend, NULL);
+  std::printf("total time: %lf seconds\n",
+              (totend.tv_sec - totstart.tv_sec) +
+	      ((totend.tv_usec - totstart.tv_usec) / 1000000.0));
+  
 }
 
 #pragma GCC diagnostic pop

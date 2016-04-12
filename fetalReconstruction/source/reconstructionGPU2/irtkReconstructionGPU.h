@@ -48,53 +48,29 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 =========================================================================*/
 
-
-#ifndef _irtkReconstruction_H
-#define _irtkReconstruction_H
+#ifndef APPS_IRTKRECONSTRUCTION_H_
+#define APPS_IRTKRECONSTRUCTION_H_
 
 #include <irtkImage.h>
 #include <irtkTransformation.h>
 #include <irtkGaussianBlurring.h>
 
-#include "reconstruction_cuda2.h"
-
 #include <vector>
+
+#include <unordered_map>
+
 using namespace std;
 
-
-/*
-//Reconstruction of volume from 2D slices
-struct POINT3D
-{
-  short x;
-  short y;
-  short z;
-  float value;
-  
-  template <typename Archive>
-  void serialize(Archive& ar, const unsigned int version)
-  {
-	ar & x & y & z & value;
-  }  
-};
-
-typedef std::vector<POINT3D> VOXELCOEFFS;
-typedef std::vector<std::vector<VOXELCOEFFS> > SLICECOEFFS;*/
+#include "utils.h"
 
 class irtkReconstruction : public irtkObject
-{
-
-protected:
-    
-
-  
-
+{ 
+public:
   vector<irtkRealImage> _slices_resampled;
-
-  //std::vector<Matrix4> _transf;
-
+  int _numThreads;
+  int _start, _end, _diff;
+  
   /// Transformations
-
   vector<irtkRigidTransformation> _transformations_gpu;
   /// Indicator whether slice has an overlap with volumetric mask
 
@@ -151,8 +127,6 @@ protected:
   //Bias field
   ///Variance for bias field
   double _sigma_bias;
-  /* /// Blurring object for bias field */
-  /* irtkGaussianBlurring<irtkRealPixel>* _gb; */
   /// Slice-dependent bias fields
   vector<irtkRealImage> _bias;
 
@@ -208,16 +182,15 @@ protected:
 
   int _directions[13][3];
 
-  Reconstruction* reconstructionGPU;
+  //Reconstruction* reconstructionGPU;
 
   bool _useCPUReg;
   bool _useCPU;
   bool _debugGPU;
 
-
-public:
-
-  //Structures to store the matrix of transformation between volume and slices
+  void RunRecon(int iterations, double delta, double lastIterLambda, int rec_iterations_first, int rec_iterations_last, bool intensity_matching, double lambda, int levels);
+  
+    //Structures to store the matrix of transformation between volume and slices
   std::vector<SLICECOEFFS> _volcoeffs;
   vector<irtkRealImage> _slices;
   irtkRealImage _reconstructed;
@@ -244,9 +217,9 @@ public:
   double _quality_factor;
 
   ///Constructor
-  irtkReconstruction(std::vector<int> dev, bool useCPUReg, bool useCPU = false);
+  irtkReconstruction();
   ///Destructor
-  ~irtkReconstruction();
+  //~irtkReconstruction();
 
   ///Create zero image as a template for reconstructed volume
   double CreateTemplate(irtkRealImage stack,
@@ -262,6 +235,7 @@ public:
 
   void SaveProbabilityMap(int i);
 
+  void setNumThreads(int i);
 
   void CenterStacks(vector<irtkRealImage>& stacks,
     vector<irtkRigidTransformation>& stack_transformations,
@@ -339,19 +313,15 @@ public:
   ///Initalize robust statistics
   void InitializeRobustStatistics();
 
-  void parallelEStep(vector<double>& slice_potential);
   ///Perform E-step 
   void EStep();
 
   ///Calculate slice-dependent scale
   void Scale();
-  void ScaleGPU();
 
   ///Calculate slice-dependent bias fields
   void Bias();
-  void BiasGPU();
   void NormaliseBias(int iter);
-  void NormaliseBiasGPU(int iter);
   
   
   ///Superresolution
@@ -363,9 +333,9 @@ public:
   ///Edge-preserving regularization
   void Regularization(int iter);
 
-  void ParallelAdaptiveRegularization1(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original);
+  void AdaptiveRegularization1(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original);
   
-  void ParallelAdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original);
+  void AdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original);
   
   ///Edge-preserving regularization with confidence map
   void AdaptiveRegularization(int iter, irtkRealImage& original);
@@ -379,6 +349,7 @@ public:
   ///Mask the volume
   void MaskVolume();
   void MaskImage(irtkRealImage& image, double padding = -1);
+
 
   ///Save slices
   void SaveSlices();
@@ -410,6 +381,8 @@ public:
 
   ///Set smoothing parameters
   inline void SetSmoothingParameters(double delta, double lambda);
+
+  inline float SumRecon();
 
   ///use in-plane sinc like PSF
   inline void useSINCPSF();
@@ -443,13 +416,12 @@ public:
 
   ///Write included/excluded/outside slices
   void Evaluate(int iter);
-  void EvaluateGPU(int iter);
 
   /// Read Transformations
   void ReadTransformation(char* folder);
 
   /// Read and replace Slices
-  void replaceSlices(string folder);
+//  void replaceSlices(string folder);
 
   //To recover original scaling
   ///Restore slice intensities to their original values
@@ -493,47 +465,14 @@ public:
   ///sync GPU with data
   //TODO distribute in documented functions above
   irtkRealImage externalRegistrationTargetImage;
-
-  void SyncGPU();
-  //Matrix4 toMatrix4(irtkMatrix mat);
-  //irtkMatrix fromMatrix4(Matrix4 mat);
-  std::vector<irtkMatrix> UpdateGPUTranformationMatrices();
   void generatePSFVolume();
-  void GaussianReconstructionGPU();
-  void EStepGPU();
-  void InitializeRobustStatisticsGPU();
-  void SimulateSlicesGPU();
-  void InitializeEMValuesGPU();
-  void SuperresolutionGPU(int iter);
-  irtkRealImage GetReconstructedGPU();
-  void MStepGPU(int iter);
-  void MaskVolumeGPU();
-  void SyncCPU();
-  //void updateStackSizes(std::vector<uint3> stack_sizes_);
-  void ScaleVolumeGPU();
-  void RestoreSliceIntensitiesGPU();
-  void InitializeEMGPU();
-  void SliceToVolumeRegistrationGPU();
   static void ResetOrigin(irtkRealImage &image, irtkRigidTransformation& transformation);
 
-  void Set_debugGPU(bool val);
-  void testCPURegGPU();
   void PrepareRegistrationSlices();
-  friend class ParallelStackRegistrations;
-  friend class ParallelSliceToVolumeRegistration;
-  friend class ParallelCoeffInit;
-  friend class ParallelSuperresolution;
-  friend class ParallelMStep;
-  friend class ParallelEStep;
-  friend class ParallelBias;
-  friend class ParallelScale;
-  friend class ParallelNormaliseBias;
-  friend class ParallelSimulateSlices;
-  friend class ParallelAverage;
-  friend class ParallelSliceAverage;
-  friend class ParallelAdaptiveRegularization1;
-  friend class ParallelAdaptiveRegularization2;
-  friend class ParallelSliceToVolumeRegistrationGPU;
+  //friend class ParallelAverage;
+  //friend class ParallelSimulateSlices;
+  //friend class ParallelStackRegistrations;
+  //friend class ParallelScale;
 };
 
 inline double irtkReconstruction::G(double x, double s)
@@ -559,7 +498,7 @@ inline irtkRealImage irtkReconstruction::GetMask()
 inline void irtkReconstruction::DebugOn()
 {
   _debug = true;
-  cout << "Debug mode." << endl;
+//  cout << "Debug mode." << endl;
 }
 
 inline void irtkReconstruction::UseAdaptiveRegularisation()
@@ -575,7 +514,7 @@ inline void irtkReconstruction::DebugOff()
 inline void irtkReconstruction::SetSigma(double sigma)
 {
   _sigma_bias = sigma;
-  cout << "_sigma_bias = " << sigma << endl;
+  //cout << "_sigma_bias = " << sigma << endl;
 }
 
 inline void irtkReconstruction::useSINCPSF()
@@ -597,13 +536,13 @@ inline void irtkReconstruction::SpeedupOff()
 inline void irtkReconstruction::GlobalBiasCorrectionOn()
 {
   _global_bias_correction = true;
-  cout << "_global_bias_correction = true " << endl;
+//  cout << "_global_bias_correction = true " << endl;
 }
 
 inline void irtkReconstruction::GlobalBiasCorrectionOff()
 {
   _global_bias_correction = false;
-  cout << "_global_bias_correction = false " << endl;
+//  cout << "_global_bias_correction = false " << endl;
 }
 
 inline void irtkReconstruction::SetLowIntensityCutoff(double cutoff)
@@ -627,6 +566,17 @@ inline void irtkReconstruction::SetSmoothingParameters(double delta, double lamb
 inline void irtkReconstruction::SetForceExcludedSlices(vector<int>& force_excluded)
 {
   _force_excluded = force_excluded;
+}
+
+inline float irtkReconstruction::SumRecon() {
+  float sum = 0.0;
+  irtkRealPixel *ap = _reconstructed.GetPointerToVoxels();
+
+  for (int j = 0; j < _reconstructed.GetNumberOfVoxels(); j++) {
+    sum += *ap;
+    ap++;
+  }
+  return sum;
 }
 
 #endif

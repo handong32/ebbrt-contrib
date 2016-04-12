@@ -1,1 +1,2 @@
-make -j CPPFLAGS='-D__EBB__ -D__TEST__ -D__ITERS__=1' EBBRT_APP_CPPFLAGS='-Wno-unused-local-typedefs -Wno-unused-variable -Wno-deprecated -D__ITERS__=9'
+set -x
+make -j CPPFLAGS='-D__EBB__ -DHAS_TBB' EBBRT_APP_CPPFLAGS='-Wno-unused-local-typedefs -Wno-unused-variable -Wno-deprecated -D__EBBRT_QUIET__' Release

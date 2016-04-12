@@ -71,7 +71,7 @@ ENDIF (TBB_FOUND)
 #message("ignore the support TBB error. it works. Do not ignore the not found error!")
 
 list(APPEND CMAKE_CXX_FLAGS
-  "-std=c++0x ${CMAKE_CXX_FLAGS}")
+  "-std=c++0x -O4 ${CMAKE_CXX_FLAGS}")
 
 find_package(Boost 1.53.0 REQUIRED COMPONENTS filesystem system coroutine)
 include_directories(${Boost_INCLUDE_DIRS})

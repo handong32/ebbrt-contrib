@@ -73,6 +73,11 @@
 #include <ebbrt/Message.h>
 #include <ebbrt/IOBuf.h>
 #include <ebbrt/Clock.h>
+#include <ebbrt/SpinBarrier.h>
+//#include <ebbrt/MulticoreEbb.h>
+#ifdef __EBBRT_BM__
+#include <ebbrt/SpinLock.h>
+#endif
 
 #include <time.h>
 #include <sys/time.h>
@@ -91,8 +96,12 @@ using namespace ebbrt;
 
 #ifdef __EBBRT_BM__
 #define PRINTF ebbrt::kprintf
+#define FORPRINTF ebbrt::force_kprintf
+static size_t indexToCPU(size_t i) { return i; }
+ebbrt::SpinLock spinlock;
 #else
 #define PRINTF std::printf
+#define FORPRINTF std::printf
 #endif
 
 struct membuf : std::streambuf {
@@ -234,7 +243,7 @@ ebbrt::Future<void> irtkReconstructionEbb::Ping(Messenger::NetworkId nid) {
     return ret;
 }
 
-void irtkReconstructionEbb::SendRecon()
+void irtkReconstructionEbb::SendRecon(int iterations)
 {
     // get the event manager context and save it
     ebbrt::EventManager::EventContext context;
@@ -296,7 +305,7 @@ void irtkReconstructionEbb::SendRecon()
 	    oa& _stack_factor[j];
 	}
 
-	oa& _reconstructed& _mask &max_slices & _global_bias_correction;
+	oa& _reconstructed& _mask &max_slices & _global_bias_correction & iterations;
 	
 	std::string ts = "E " + ofs.str();
 	
@@ -361,42 +370,42 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
 	/********** deserialize ******************/
 	boost::archive::text_iarchive ia(stream);
 
-	int start, end, diff;
-	ia &start &end;
-	diff = end - start;
+	int iterations = 1; // 9 //2 for Shepp-Logan is enough
+	ia & _start & _end;
+	_diff = _end - _start;
 
-	ebbrt::kprintf("start:%d end:%d diff:%d\n", start, end, end);
+	//ebbrt::kprintf("start:%d end:%d diff:%d\n", start, end, end);
 
-	_slices.resize(diff);
-	_transformations.resize(diff);
-	_simulated_slices.resize(diff);
-	_simulated_weights.resize(diff);
-	_simulated_inside.resize(diff);
-	_stack_index.resize(diff);
+	_slices.resize(_diff);
+	_transformations.resize(_diff);
+	_simulated_slices.resize(_diff);
+	_simulated_weights.resize(_diff);
+	_simulated_inside.resize(_diff);
+	_stack_index.resize(_diff);
 
-	for (int k = 0; k < diff; k++) {
+	for (int k = 0; k < _diff; k++) {
 	    ia &_slices[k];
 	}
 
-	ebbrt::kprintf("_slices deserialized\n");
+	//ebbrt::kprintf("_slices deserialized\n");
 
-	for (int k = 0; k < diff; k++) {
+	for (int k = 0; k < _diff; k++) {
 	    ia &_transformations[k];
 	}
 
-	for (int k = 0; k < diff; k++) {
+	for (int k = 0; k < _diff; k++) {
 	    ia &_simulated_slices[k];
 	}
 
-	for (int k = 0; k < diff; k++) {
+	for (int k = 0; k < _diff; k++) {
 	    ia &_simulated_weights[k];
 	}
 
-	for (int k = 0; k < diff; k++) {
+	for (int k = 0; k < _diff; k++) {
 	    ia &_simulated_inside[k];
 	}
 
-	for (int k = 0; k < diff; k++) {
+	for (int k = 0; k < _diff; k++) {
 	    ia &_stack_index[k];
 	}
 
@@ -406,16 +415,15 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
 	for (int k = 0; k < ssend; k++) {
 	    ia &_stack_factor[k];
 	}
-	ia &_reconstructed &_mask &_max_slices &_global_bias_correction;
+	ia &_reconstructed &_mask &_max_slices &_global_bias_correction & iterations;
 
 	/********* ******************************/
-
-	ebbrt::kprintf("Deserialized...\n");
 	
-	ebbrt::kprintf("_slices: %d\n", _slices.size());
-	ebbrt::kprintf("_transformations: %d\n", _transformations.size());
+	//ebbrt::kprintf("Deserialized...\n");
+	
+	//ebbrt::kprintf("_slices: %d\n", _slices.size());
+	//ebbrt::kprintf("_transformations: %d\n", _transformations.size());
 
-	int iterations = __ITERS__; // 9 //2 for Shepp-Logan is enough
 	double sigma = 12;
 	double lambda = 0.02;
 	double delta = 150;
@@ -471,7 +479,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
 	oa &_reconstructed;
 	
 	std::string ts = "E " + ofs.str();
-	ebbrt::kprintf("ts length: %d\n", ts.length());
+	//ebbrt::kprintf("ts length: %d\n", ts.length());
 	
 	Print(nid, ts.c_str());
       }
@@ -725,72 +733,6 @@ public:
   }
 };
 
-/*class ParallelSliceAverage {
-  irtkReconstructionEbb *reconstructor;
-  vector<irtkRealImage> &slices;
-  vector<irtkRigidTransformation> &slice_transformations;
-  irtkRealImage &average;
-  irtkRealImage &weights;
-
-public:
-  void operator()(const blocked_range<size_t> &r) const {
-    for (int k0 = r.begin(); k0 < r.end(); k0++) {
-      for (int j0 = 0; j0 < average.GetY(); j0++) {
-        for (int i0 = 0; i0 < average.GetX(); i0++) {
-          double x0 = i0;
-          double y0 = j0;
-          double z0 = k0;
-          // Transform point into world coordinates
-          average.ImageToWorld(x0, y0, z0);
-          for (int inputIndex = 0; inputIndex < slices.size(); inputIndex++) {
-            double x = x0;
-            double y = y0;
-            double z = z0;
-            // Transform point
-            slice_transformations[inputIndex].Transform(x, y, z);
-            // Transform point into image coordinates
-            slices[inputIndex].WorldToImage(x, y, z);
-            int i = round(x);
-            int j = round(y);
-            int k = round(z);
-            // Check whether transformed point is in FOV of input
-            if ((i >= 0) && (i < slices[inputIndex].GetX()) && (j >= 0) &&
-                (j < slices[inputIndex].GetY()) && (k >= 0) &&
-                (k < slices[inputIndex].GetZ())) {
-              if (slices[inputIndex](i, j, k) > 0) {
-                average.PutAsDouble(i0, j0, k0, 0,
-                                    average(i0, j0, k0) +
-                                        slices[inputIndex](i, j, k));
-                weights.PutAsDouble(i0, j0, k0, 0, weights(i0, j0, k0) + 1);
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  ParallelSliceAverage(irtkReconstructionEbb *reconstructor,
-                       vector<irtkRealImage> &_slices,
-                       vector<irtkRigidTransformation> &_slice_transformations,
-                       irtkRealImage &_average, irtkRealImage &_weights)
-      : reconstructor(reconstructor), slices(_slices),
-        slice_transformations(_slice_transformations), average(_average),
-        weights(_weights) {
-    average.Initialize(reconstructor->_reconstructed.GetImageAttributes());
-    average = 0;
-    weights.Initialize(reconstructor->_reconstructed.GetImageAttributes());
-    weights = 0;
-  }
-
-  // execute
-  void operator()() const {
-    task_scheduler_init init(tbb_no_threads);
-    parallel_for(blocked_range<size_t>(0, average.GetZ()), *this);
-    init.terminate();
-  }
-};*/
-
 irtkRealImage irtkReconstructionEbb::CreateAverage(
     vector<irtkRealImage> &stacks,
     vector<irtkRigidTransformation> &stack_transformations) {
@@ -839,7 +781,7 @@ double irtkReconstructionEbb::CreateTemplate(irtkRealImage stack,
   } else
     d = resolution;
 
-  cout << "Constructing volume with isotropic voxel size " << d << endl;
+  //cout << "Constructing volume with isotropic voxel size " << d << endl;
 
   // resample "enlarged" to resolution "d"
   irtkNearestNeighborInterpolateImageFunction interpolator;
@@ -1223,11 +1165,46 @@ public:
     }
 };
 void irtkReconstructionEbb::SimulateSlices() {
-#ifdef HAS_TBB
+#ifndef __EBBRT_BM__
     ParallelSimulateSlices parallelSimulateSlices(this, _numThreads);
     parallelSimulateSlices();
 #else
-    runSimulateSlices(this, 0, _slices.size());
+    size_t ncpus = ebbrt::Cpu::Count();
+    if(ncpus > 1)
+    {
+	static ebbrt::SpinBarrier bar(ncpus);
+	ebbrt::EventManager::EventContext context;
+	std::atomic<size_t> count(0);
+	size_t theCpu = ebbrt::Cpu::GetMine();
+	int diff = this->_diff;
+	for (size_t i = 0; i < ncpus; i++) {
+	    // spawn jobs on each core using SpawnRemote
+	    ebbrt::event_manager->SpawnRemote(
+		[this, theCpu, ncpus, &count, &context, i, diff]() {
+		    // get my cpu id
+		    size_t mycpu = ebbrt::Cpu::GetMine();
+		    int starte, ende, factor;
+		    factor = (int)ceil(diff / (float)ncpus);
+		    starte = i * factor;
+		    ende = i * factor + factor;
+		    ende = (ende > diff) ? diff : ende;
+		    runSimulateSlices(this, starte, ende);
+		    count++;
+		    bar.Wait();
+		    while (count < (size_t)ncpus);
+		    if (mycpu == theCpu) {
+			ebbrt::event_manager->ActivateContext(std::move(context));
+		    }
+		},
+		    indexToCPU(
+			i)); // if i don't add indexToCPU, one of the cores never run ? ?
+	}
+	ebbrt::event_manager->SaveContext(context);
+    }
+    else
+    {
+	runSimulateSlices(this, 0, _slices.size());
+    }
 #endif
 }
 
@@ -1641,7 +1618,7 @@ void irtkReconstructionEbb::CreateSlicesAndTransformations(
     }
   }
 
-  cout << "Number of slices: " << _slices.size() << endl;
+  //cout << "Number of slices: " << _slices.size() << endl;
 }
 
 void irtkReconstructionEbb::ResetSlices(vector<irtkRealImage> &stacks,
@@ -1665,7 +1642,7 @@ void irtkReconstructionEbb::ResetSlices(vector<irtkRealImage> &stacks,
       _slices.push_back(slice);
     }
   }
-  cout << "Number of slices: " << _slices.size() << endl;
+  //cout << "Number of slices: " << _slices.size() << endl;
 
   for (int i = 0; i < _slices.size(); i++) {
     _bias[i].Initialize(_slices[i].GetImageAttributes());
@@ -1727,11 +1704,11 @@ void irtkReconstructionEbb::UpdateSlices(vector<irtkRealImage> &stacks,
       _slices.push_back(slice);
     }
   }
-  cout << "Number of slices: " << _slices.size() << endl;
+//  cout << "Number of slices: " << _slices.size() << endl;
 }
 
 void irtkReconstructionEbb::MaskSlices() {
-  cout << "Masking slices ... ";
+//  cout << "Masking slices ... ";
 
   double x, y, z;
   int i, j;
@@ -1775,18 +1752,14 @@ void irtkReconstructionEbb::MaskSlices() {
       }
   }
 
-  cout << "done." << endl;
+//  cout << "done." << endl;
 }
 
-void irtkReconstructionEbb::SliceToVolumeRegistration() {
-    if (_slices_regCertainty.size() == 0) {
-	_slices_regCertainty.resize(_slices.size());
-    }
-
-    irtkImageAttributes attr = _reconstructed.GetImageAttributes();
+void runSliceToVolumeRegistration(irtkReconstructionEbb *reconstructor, int start, int end)
+{
+    irtkImageAttributes attr = reconstructor->_reconstructed.GetImageAttributes();
     
-    size_t inputIndex = 0;
-    for(inputIndex = 0; inputIndex != _slices.size(); inputIndex++) {
+    for(int inputIndex = start; inputIndex != end; inputIndex++) {
 	irtkImageRigidRegistrationWithPadding registration;
 	irtkGreyPixel smin, smax;
 	irtkGreyImage target;
@@ -1794,8 +1767,8 @@ void irtkReconstructionEbb::SliceToVolumeRegistration() {
 	irtkResamplingWithPadding<irtkRealPixel> resampling(attr._dx, attr._dx,
 							    attr._dx, -1);
 	
-	t = _slices[inputIndex];
-	resampling.SetInput(&_slices[inputIndex]);
+	t = reconstructor->_slices[inputIndex];
+	resampling.SetInput(&reconstructor->_slices[inputIndex]);
 	resampling.SetOutput(&t);
 	resampling.Run();
 	target = t;
@@ -1804,27 +1777,96 @@ void irtkReconstructionEbb::SliceToVolumeRegistration() {
 	if (smax > -1) {
 	    // put origin to zero
 	    irtkRigidTransformation offset;
-	    ResetOrigin(target, offset);
+	    reconstructor->ResetOrigin(target, offset);
 	    irtkMatrix mo = offset.GetMatrix();
-	    irtkMatrix m =_transformations[inputIndex].GetMatrix();
+	    irtkMatrix m =reconstructor->_transformations[inputIndex].GetMatrix();
 	    m = m * mo;
-	    _transformations[inputIndex].PutMatrix(m);
+	    reconstructor->_transformations[inputIndex].PutMatrix(m);
 	    
-	    irtkGreyImage source = _reconstructed;
+	    irtkGreyImage source = reconstructor->_reconstructed;
 	    registration.SetInput(&target, &source);
-	    registration.SetOutput(&_transformations[inputIndex]);
+	    registration.SetOutput(&reconstructor->_transformations[inputIndex]);
 	    registration.GuessParameterSliceToVolume();
 	    registration.SetTargetPadding(-1);
 	    registration.Run();
 	    
-	    _slices_regCertainty[inputIndex] = registration.last_similarity;
+	    reconstructor->_slices_regCertainty[inputIndex] = registration.last_similarity;
 	    // undo the offset
 	    mo.Invert();
-	    m = _transformations[inputIndex].GetMatrix();
+	    m = reconstructor->_transformations[inputIndex].GetMatrix();
 	    m = m * mo;
-	    _transformations[inputIndex].PutMatrix(m);
+	    reconstructor->_transformations[inputIndex].PutMatrix(m);
 	}
     }
+}
+
+class ParallelSliceToVolumeRegistration {
+public:
+    irtkReconstructionEbb *reconstructor;
+    int nt;
+
+    ParallelSliceToVolumeRegistration(irtkReconstructionEbb *_reconstructor, int _nt)
+	: reconstructor(_reconstructor), nt(_nt) {}
+
+    void operator()(const blocked_range<int> &r) const {
+	runSliceToVolumeRegistration(reconstructor, r.begin(), r.end());
+    }
+
+    // execute
+    void operator()() const {
+	task_scheduler_init init(nt);
+	parallel_for(blocked_range<int>(0, reconstructor->_slices.size()),
+		     *this);
+	init.terminate();
+    }
+};
+
+void irtkReconstructionEbb::SliceToVolumeRegistration() {
+    if (_slices_regCertainty.size() == 0) {
+	_slices_regCertainty.resize(_slices.size());
+    }
+
+#ifndef __EBBRT_BM__
+    ParallelSliceToVolumeRegistration registration(this, _numThreads);
+    registration();
+#else
+    size_t ncpus = ebbrt::Cpu::Count();
+    if(ncpus > 1)
+    {
+	static ebbrt::SpinBarrier bar(ncpus);
+	ebbrt::EventManager::EventContext context;
+	std::atomic<size_t> count(0);
+	size_t theCpu = ebbrt::Cpu::GetMine();
+	int diff = this->_diff;
+	for (size_t i = 0; i < ncpus; i++) {
+	    // spawn jobs on each core using SpawnRemote
+	    ebbrt::event_manager->SpawnRemote(
+		[this, theCpu, ncpus, &count, &context, i, diff]() {
+		    // get my cpu id
+		    size_t mycpu = ebbrt::Cpu::GetMine();
+		    int starte, ende, factor;
+		    factor = (int)ceil(diff / (float)ncpus);
+		    starte = i * factor;
+		    ende = i * factor + factor;
+		    ende = (ende > diff) ? diff : ende;
+		    runSliceToVolumeRegistration(this, starte, ende);
+		    count++;
+		    bar.Wait();
+		    while (count < (size_t)ncpus);
+		    if (mycpu == theCpu) {
+			ebbrt::event_manager->ActivateContext(std::move(context));
+		    }
+		},
+		    indexToCPU(
+			i)); // if i don't add indexToCPU, one of the cores never run ? ?
+	}
+	ebbrt::event_manager->SaveContext(context);
+    }
+    else
+    {
+	runSliceToVolumeRegistration(this, 0, _slices.size());
+    }
+#endif
 }
 
 void runCoeffInit(irtkReconstructionEbb *reconstructor, int start, int end)
@@ -1919,10 +1961,6 @@ void runCoeffInit(irtkReconstructionEbb *reconstructor, int start, int end)
 		    sum += PSF(i, j, k);
 		}
 	PSF /= sum;
-
-	if (reconstructor->_debug)
-	    if (inputIndex == 0)
-		PSF.Write("PSF.nii.gz");
 
 	// prepare storage for PSF transformed and resampled to the space of
 	// reconstructed volume
@@ -2144,11 +2182,46 @@ void irtkReconstructionEbb::CoeffInit() {
     _slice_inside_cpu.clear();
     _slice_inside_cpu.resize(_slices.size());
 
-#ifdef HAS_TBB
+#ifndef __EBBRT_BM__
     ParallelCoeffInit coeffinit(this, _numThreads);
     coeffinit();
 #else
-    runCoeffInit(this, 0, _slices.size());
+    size_t ncpus = ebbrt::Cpu::Count();
+    if(ncpus > 1)
+    {
+	static ebbrt::SpinBarrier bar(ncpus);
+	ebbrt::EventManager::EventContext context;
+	std::atomic<size_t> count(0);
+	size_t theCpu = ebbrt::Cpu::GetMine();
+	int diff = this->_diff;
+	for (size_t i = 0; i < ncpus; i++) {
+	    // spawn jobs on each core using SpawnRemote
+	    ebbrt::event_manager->SpawnRemote(
+		[this, theCpu, ncpus, &count, &context, i, diff]() {
+		    // get my cpu id
+		    size_t mycpu = ebbrt::Cpu::GetMine();
+		    int starte, ende, factor;
+		    factor = (int)ceil(diff / (float)ncpus);
+		    starte = i * factor;
+		    ende = i * factor + factor;
+		    ende = (ende > diff) ? diff : ende;
+		    runCoeffInit(this, starte, ende);
+		    count++;
+		    bar.Wait();
+		    while (count < (size_t)ncpus);
+		    if (mycpu == theCpu) {
+			ebbrt::event_manager->ActivateContext(std::move(context));
+		    }
+		},
+		    indexToCPU(
+			i)); // if i don't add indexToCPU, one of the cores never run ? ?
+	}
+	ebbrt::event_manager->SaveContext(context);
+    }
+    else
+    {
+	runCoeffInit(this, 0, _slices.size());
+    }
 #endif
 
     // prepare image for volume weights, will be needed for Gaussian
@@ -2265,11 +2338,6 @@ void irtkReconstructionEbb::GaussianReconstruction() {
     for (i = 0; i < voxel_num.size(); i++)
 	if (voxel_num[i] < 0.1 * median)
 	    _small_slices.push_back(i);
-
-    //std::cout << "median = " << median << std::endl;;
-    //std::cout << "_reconstructed = " << sumOneImage(_reconstructed) << std::endl;
-    //std::cout << "_small_slices = " << sumInt(_small_slices) << std::endl;
-  
 }
 
 void irtkReconstructionEbb::InitializeEM() {
@@ -2497,12 +2565,50 @@ void irtkReconstructionEbb::EStep() {
     int num = 0;
     vector<double> slice_potential(_slices.size(), 0);
 
-#ifdef HAS_TBB    
+#ifndef __EBBRT_BM__
     ParallelEStep parallelEStep(this, slice_potential, _numThreads);
     parallelEStep();
 #else
-    runEStep(slice_potential, this, 0, _slices.size()); 
+    size_t ncpus = ebbrt::Cpu::Count();
+    if(ncpus > 1)
+    {
+	static ebbrt::SpinBarrier bar(ncpus);
+	ebbrt::EventManager::EventContext context;
+	std::atomic<size_t> count(0);
+	size_t theCpu = ebbrt::Cpu::GetMine();
+	int diff = this->_diff;
+	for (size_t i = 0; i < ncpus; i++) {
+	    // spawn jobs on each core using SpawnRemote
+	    ebbrt::event_manager->SpawnRemote(
+		[this, theCpu, ncpus, &count, &context, i, diff, &slice_potential]() {
+		    // get my cpu id
+		    size_t mycpu = ebbrt::Cpu::GetMine();
+		    int starte, ende, factor;
+		    factor = (int)ceil(diff / (float)ncpus);
+		    starte = i * factor;
+		    ende = i * factor + factor;
+		    ende = (ende > diff) ? diff : ende;
+
+		    runEStep(slice_potential, this, starte, ende); 
+
+		    count++;
+		    bar.Wait();
+		    while (count < (size_t)ncpus);
+		    if (mycpu == theCpu) {
+			ebbrt::event_manager->ActivateContext(std::move(context));
+		    }
+		},
+		    indexToCPU(
+			i)); // if i don't add indexToCPU, one of the cores never run ? ?
+	}
+	ebbrt::event_manager->SaveContext(context);
+    }
+    else
+    {
+	runEStep(slice_potential, this, 0, _slices.size()); 
+    }
 #endif
+
     // exclude slices identified as having small overlap with ROI, set their
     // potentials to -1
     for (unsigned int i = 0; i < _small_slices.size(); i++)
@@ -2648,18 +2754,17 @@ void irtkReconstructionEbb::EStep() {
     }
 }
 
-void irtkReconstructionEbb::Scale() {
- 
-    size_t inputIndex = 0;
-    for(inputIndex = 0; inputIndex != _slices.size(); inputIndex++) {
+void runScale(irtkReconstructionEbb *reconstructor, int start, int end)
+{
+    for(int inputIndex = start; inputIndex != end; inputIndex++) {
 	// alias the current slice
-	irtkRealImage &slice = _slices[inputIndex];
+	irtkRealImage &slice = reconstructor->_slices[inputIndex];
 
 	// alias the current weight image
-	irtkRealImage &w = _weights[inputIndex];
+	irtkRealImage &w = reconstructor->_weights[inputIndex];
 
 	// alias the current bias image
-	irtkRealImage &b = _bias[inputIndex];
+	irtkRealImage &b = reconstructor->_bias[inputIndex];
 
 	// initialise calculation of scale
 	double scalenum = 0;
@@ -2668,11 +2773,11 @@ void irtkReconstructionEbb::Scale() {
 	for (int i = 0; i < slice.GetX(); i++)
 	    for (int j = 0; j < slice.GetY(); j++)
 		if (slice(i, j, 0) != -1) {
-		    if (_simulated_weights[inputIndex](i, j, 0) > 0.99) {
+		    if (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0.99) {
 			// scale - intensity matching
 			double eb = exp(-b(i, j, 0));
 			scalenum += w(i, j, 0) * slice(i, j, 0) * eb *
-			    _simulated_slices[inputIndex](i, j, 0);
+			    reconstructor->_simulated_slices[inputIndex](i, j, 0);
 			scaleden +=
 			    w(i, j, 0) * slice(i, j, 0) * eb * slice(i, j, 0) * eb;
 		    }
@@ -2680,12 +2785,75 @@ void irtkReconstructionEbb::Scale() {
 
 	// calculate scale for this slice
 	if (scaleden > 0)
-	    _scale_cpu[inputIndex] = scalenum / scaleden;
+	    reconstructor->_scale_cpu[inputIndex] = scalenum / scaleden;
 	else
-	    _scale_cpu[inputIndex] = 1;
+	    reconstructor->_scale_cpu[inputIndex] = 1;
     }
+}
 
+class ParallelScale {
+  irtkReconstructionEbb *reconstructor;
+    int nt;
 
+public:
+    ParallelScale(irtkReconstructionEbb *_reconstructor, int _nt)
+	: reconstructor(_reconstructor), nt(_nt) {}
+
+  void operator()(const blocked_range<int> &r) const {
+      runScale(reconstructor, r.begin(), r.end());
+  }
+
+  // execute
+  void operator()() const {
+    task_scheduler_init init(nt);
+    parallel_for(blocked_range<int>(0, reconstructor->_slices.size()),
+                 *this);
+    init.terminate();
+  }
+};
+
+void irtkReconstructionEbb::Scale() { 
+#ifndef __EBBRT_BM__
+    ParallelScale scale(this, _numThreads);
+    scale();
+#else
+    size_t ncpus = ebbrt::Cpu::Count();
+    if(ncpus > 1)
+    {
+	static ebbrt::SpinBarrier bar(ncpus);
+	ebbrt::EventManager::EventContext context;
+	std::atomic<size_t> count(0);
+	size_t theCpu = ebbrt::Cpu::GetMine();
+	int diff = this->_diff;
+	for (size_t i = 0; i < ncpus; i++) {
+	    // spawn jobs on each core using SpawnRemote
+	    ebbrt::event_manager->SpawnRemote(
+		[this, theCpu, ncpus, &count, &context, i, diff]() {
+		    // get my cpu id
+		    size_t mycpu = ebbrt::Cpu::GetMine();
+		    int starte, ende, factor;
+		    factor = (int)ceil(diff / (float)ncpus);
+		    starte = i * factor;
+		    ende = i * factor + factor;
+		    ende = (ende > diff) ? diff : ende;
+		    runScale(this, starte, ende);
+		    count++;
+		    bar.Wait();
+		    while (count < (size_t)ncpus);
+		    if (mycpu == theCpu) {
+			ebbrt::event_manager->ActivateContext(std::move(context));
+		    }
+		},
+		    indexToCPU(
+			i)); // if i don't add indexToCPU, one of the cores never run ? ?
+	}
+	ebbrt::event_manager->SaveContext(context);
+    }
+    else
+    {
+       runScale(this, 0, _slices.size());
+    }
+#endif
 }
 
 void irtkReconstructionEbb::Bias() {
@@ -2779,7 +2947,7 @@ void irtkReconstructionEbb::Bias() {
     }	
 }
 
-void irtkReconstructionEbb::ParallelAdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
+void irtkReconstructionEbb::AdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
 {
     int dx = _reconstructed.GetX();
     int dy = _reconstructed.GetY();
@@ -2837,7 +3005,7 @@ void irtkReconstructionEbb::ParallelAdaptiveRegularization2(vector<irtkRealImage
     }
 }
 
-void irtkReconstructionEbb::ParallelAdaptiveRegularization1(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
+void irtkReconstructionEbb::AdaptiveRegularization1(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original)
 {
     int dx = _reconstructed.GetX();
     int dy = _reconstructed.GetY();
@@ -2877,45 +3045,31 @@ void irtkReconstructionEbb::AdaptiveRegularization(int iter, irtkRealImage& orig
     for (int i = 0; i < 13; i++)
 	b.push_back(_reconstructed);
 
-    ParallelAdaptiveRegularization1(b, factor, original);
+    AdaptiveRegularization1(b, factor, original);
 	
     irtkRealImage original2 = _reconstructed;
-    ParallelAdaptiveRegularization2(b, factor, original2);
+    AdaptiveRegularization2(b, factor, original2);
 
     if (_alpha * _lambda / (_delta * _delta) > 0.068) {
 	//ebbrt::kprintf("Warning: regularization might not have smoothing effect! Ensure that alpha*lambda/delta^2 is below 0.068.\n");
     }
 }
 
-void irtkReconstructionEbb::Superresolution(int iter) {
-
-        int i, j, k;
-    irtkRealImage addon, original;
-    
-    // Remember current reconstruction for edge-preserving smoothing
-    original = _reconstructed;
-
-    // Clear addon
-    addon.Initialize(_reconstructed.GetImageAttributes());
-    addon = 0;
-    
-    // Clear confidence map
-    _confidence_map.Initialize(_reconstructed.GetImageAttributes());
-    _confidence_map = 0;
-
-    for (size_t inputIndex = 0; inputIndex < _slices.size(); ++inputIndex)
+void runSuperresolution(irtkReconstructionEbb *reconstructor, int start, int end, irtkRealImage& addon, irtkRealImage& _confidence_map)
+{
+    for (int inputIndex = start; inputIndex < end; ++inputIndex)
     {
 	// read the current slice
-	irtkRealImage slice = _slices[inputIndex];
+	irtkRealImage slice = reconstructor->_slices[inputIndex];
 
 	// read the current weight image
-	irtkRealImage &w = _weights[inputIndex];
+	irtkRealImage &w = reconstructor->_weights[inputIndex];
 
 	// read the current bias image
-	irtkRealImage &b = _bias[inputIndex];
+	irtkRealImage &b = reconstructor->_bias[inputIndex];
 
 	// identify scale factor
-	double scale = _scale_cpu[inputIndex];
+	double scale = reconstructor->_scale_cpu[inputIndex];
 
 	// Update reconstructed volume using current slice
 
@@ -2927,25 +3081,153 @@ void irtkReconstructionEbb::Superresolution(int iter) {
 		    // bias correct and scale the slice
 		    slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
 
-		    if (_simulated_slices[inputIndex](i, j, 0) > 0)
+		    if (reconstructor->_simulated_slices[inputIndex](i, j, 0) > 0)
 			slice(i, j, 0) -=
-			    _simulated_slices[inputIndex](i, j, 0);
+			    reconstructor->_simulated_slices[inputIndex](i, j, 0);
 		    else
 			slice(i, j, 0) = 0;
 
-		    int n = _volcoeffs[inputIndex][i][j].size();
+		    int n = reconstructor->_volcoeffs[inputIndex][i][j].size();
 		    for (int k = 0; k < n; k++) {
-			p = _volcoeffs[inputIndex][i][j][k];
+			p = reconstructor->_volcoeffs[inputIndex][i][j][k];
 			addon(p.x, p.y, p.z) +=
 			    p.value * slice(i, j, 0) * w(i, j, 0) *
-			    _slice_weight_cpu[inputIndex];
+			    reconstructor->_slice_weight_cpu[inputIndex];
 			_confidence_map(p.x, p.y, p.z) +=
 			    p.value * w(i, j, 0) *
-			    _slice_weight_cpu[inputIndex];
+			    reconstructor->_slice_weight_cpu[inputIndex];
 		    }
 		}
     } // end of loop for a slice inputIndex
+}
 
+class ParallelSuperresolution {
+  irtkReconstructionEbb *reconstructor;
+    int nt;
+
+public:
+    irtkRealImage confidence_map;
+    irtkRealImage addon;
+
+    void operator()(const blocked_range<int> &r) {
+	runSuperresolution(reconstructor, r.begin(), r.end(), addon, confidence_map);
+    }
+    
+    ParallelSuperresolution(ParallelSuperresolution &x, split)
+	: reconstructor(x.reconstructor), nt(x.nt) {
+	// Clear addon
+	addon.Initialize(reconstructor->_reconstructed.GetImageAttributes());
+	addon = 0;
+	
+	// Clear confidence map
+	confidence_map.Initialize(
+	    reconstructor->_reconstructed.GetImageAttributes());
+	confidence_map = 0;
+    }
+
+
+    void join(const ParallelSuperresolution &y) {
+	addon += y.addon;
+	confidence_map += y.confidence_map;
+    }
+
+    ParallelSuperresolution(irtkReconstructionEbb *reconstructor, int _nt)
+	: reconstructor(reconstructor), nt(_nt) {
+	// Clear addon
+	addon.Initialize(reconstructor->_reconstructed.GetImageAttributes());
+	addon = 0;
+	
+	// Clear confidence map
+	confidence_map.Initialize(
+	    reconstructor->_reconstructed.GetImageAttributes());
+	confidence_map = 0;
+    }
+
+  // execute
+    void operator()() {
+	task_scheduler_init init(nt);
+	parallel_reduce(blocked_range<int>(0, reconstructor->_slices.size()),
+			*this);
+	init.terminate();
+    }
+};
+
+void irtkReconstructionEbb::Superresolution(int iter) {
+
+    int i, j, k;
+    irtkRealImage addon, original;
+    
+    // Remember current reconstruction for edge-preserving smoothing
+    original = _reconstructed;
+
+#ifndef __EBBRT_BM__
+    ParallelSuperresolution parallelSuperresolution(this, _numThreads);
+    parallelSuperresolution();
+
+    addon = parallelSuperresolution.addon;
+    _confidence_map = parallelSuperresolution.confidence_map;
+#else
+    // Clear addon
+    addon.Initialize(_reconstructed.GetImageAttributes());
+    addon = 0;
+    
+    // Clear confidence map
+    _confidence_map.Initialize(_reconstructed.GetImageAttributes());
+    _confidence_map = 0;
+    
+    size_t ncpus = ebbrt::Cpu::Count();
+    if(ncpus > 1)
+    {
+	static ebbrt::SpinBarrier bar(ncpus);
+	ebbrt::EventManager::EventContext context;
+	std::atomic<size_t> count(0);
+	size_t theCpu = ebbrt::Cpu::GetMine();
+	int diff = this->_diff;
+	for (size_t i = 0; i < ncpus; i++) {
+	    // spawn jobs on each core using SpawnRemote
+	    ebbrt::event_manager->SpawnRemote(
+		[this, theCpu, ncpus, &count, &context, i, diff, &addon]() {
+		    // get my cpu id
+		    size_t mycpu = ebbrt::Cpu::GetMine();
+		    int starte, ende, factor;
+		    factor = (int)ceil(diff / (float)ncpus);
+		    starte = i * factor;
+		    ende = i * factor + factor;
+		    ende = (ende > diff) ? diff : ende;
+
+		    irtkRealImage maddon, m_confidence_map;
+		    maddon.Initialize(_reconstructed.GetImageAttributes());
+		    maddon = 0;
+		    m_confidence_map.Initialize(_reconstructed.GetImageAttributes());
+		    m_confidence_map = 0;
+		    runSuperresolution(this, starte, ende, maddon, m_confidence_map);
+		    
+		    // braces for scoping
+		    {
+			// lock_guard auto unlocks end of scope, mutex doesn't work yet
+			std::lock_guard<ebbrt::SpinLock> l(spinlock);
+			addon += maddon;
+			this->_confidence_map += m_confidence_map;
+		    }
+
+		    count++;
+		    bar.Wait();
+		    while (count < (size_t)ncpus);
+		    if (mycpu == theCpu) {
+			ebbrt::event_manager->ActivateContext(std::move(context));
+		    }
+		},
+		    indexToCPU(
+			i)); // if i don't add indexToCPU, one of the cores never run ? ?
+	}
+	ebbrt::event_manager->SaveContext(context);
+    }
+    else
+    {
+	runSuperresolution(this, 0, _slices.size(), addon, _confidence_map);
+    }
+#endif
+    
     if (!_adaptive)
 	for (i = 0; i < addon.GetX(); i++)
 	    for (j = 0; j < addon.GetY(); j++)
@@ -2980,40 +3262,37 @@ void irtkReconstructionEbb::Superresolution(int iter) {
     }
 }
 
-void irtkReconstructionEbb::MStep(int iter) {
-    double sigma = 0;
-    double mix = 0;
-    double num = 0;
-    double min = voxel_limits<irtkRealPixel>::max();
-    double max = voxel_limits<irtkRealPixel>::min();
-    
-    for (size_t inputIndex = 0; inputIndex < _slices.size(); ++inputIndex) {
+void runMStep(irtkReconstructionEbb *reconstructor, int start, int end, double& sigma, double& mix, double& num, double& min, double& max)
+{
+    for (int inputIndex = start; inputIndex < end; ++inputIndex) {
 	// read the current slice
-	irtkRealImage slice = _slices[inputIndex];
+	irtkRealImage slice = reconstructor->_slices[inputIndex];
 
 	// alias the current weight image
-	irtkRealImage &w = _weights[inputIndex];
+	irtkRealImage &w = reconstructor->_weights[inputIndex];
 
 	// alias the current bias image
-	irtkRealImage &b = _bias[inputIndex];
+	irtkRealImage &b = reconstructor->_bias[inputIndex];
 
 	// identify scale factor
-	double scale = _scale_cpu[inputIndex];
-	
-	// calculate error
-	for (int i = 0; i < slice.GetX(); i++) {
-	    for (int j = 0; j < slice.GetY(); j++) {
+	double scale = reconstructor->_scale_cpu[inputIndex];
 
+	// calculate error
+	for (int i = 0; i < slice.GetX(); i++)
+	{
+	    for (int j = 0; j < slice.GetY(); j++)
+	    {
+		//std::cout << i << " " << j << " " << inputIndex << " " << slice(i,j,0) << " " << w(i,j,0) << " " << b(i,j,0) << " " << scale << std::endl;
 		if (slice(i, j, 0) != -1) {
 		    // bias correct and scale the slice
 		    slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
 
 		    // otherwise the error has no meaning - it is equal to slice
 		    // intensity
-		    if (_simulated_weights[inputIndex](i, j, 0) > 0.99) {
+		    if (reconstructor->_simulated_weights[inputIndex](i, j, 0) > 0.99) {
 
 			slice(i, j, 0) -=
-			    _simulated_slices[inputIndex](i, j, 0);
+			    reconstructor->_simulated_slices[inputIndex](i, j, 0);
 
 			// sigma and mix
 			double e = slice(i, j, 0);
@@ -3032,7 +3311,134 @@ void irtkReconstructionEbb::MStep(int iter) {
 	    }
 	}
     } // end of loop for a slice inputIndex
+}
 
+class ParallelMStep {
+    irtkReconstructionEbb *reconstructor;
+    int nt;
+    
+public:
+    double sigma;
+    double mix;
+    double num;
+    double min;
+    double max;
+
+    void operator()(const blocked_range<int> &r) {
+	runMStep(reconstructor, r.begin(), r.end(), sigma, mix, num, min, max);
+    }
+    
+    ParallelMStep(ParallelMStep &x, split) : reconstructor(x.reconstructor), nt(x.nt) {
+	sigma = 0;
+	mix = 0;
+	num = 0;
+	min = 0;
+	max = 0;
+    }
+    
+    void join(const ParallelMStep &y) {
+	if (y.min < min)
+	    min = y.min;
+	if (y.max > max)
+	    max = y.max;
+	
+	sigma += y.sigma;
+	mix += y.mix;
+	num += y.num;
+    }
+    
+    ParallelMStep(irtkReconstructionEbb *reconstructor, int _nt)
+	: reconstructor(reconstructor), nt(_nt) {
+	sigma = 0;
+	mix = 0;
+	num = 0;
+	min = voxel_limits<irtkRealPixel>::max();
+	max = voxel_limits<irtkRealPixel>::min();
+    }
+    
+    // execute
+    void operator()() {
+	task_scheduler_init init(nt);
+	parallel_reduce(blocked_range<int>(0, reconstructor->_slices.size()),
+			*this);
+	init.terminate();
+    }
+};
+
+void irtkReconstructionEbb::MStep(int iter) {
+#ifndef __EBBRT_BM__
+    ParallelMStep parallelMStep(this, _numThreads);
+    parallelMStep();
+    double sigma = parallelMStep.sigma;
+    double mix = parallelMStep.mix;
+    double num = parallelMStep.num;
+    double min = parallelMStep.min;
+    double max = parallelMStep.max;
+#else
+    double sigma = 0;
+    double mix = 0;
+    double num = 0;
+    double min = voxel_limits<irtkRealPixel>::max();
+    double max = voxel_limits<irtkRealPixel>::min();
+    
+    size_t ncpus = ebbrt::Cpu::Count();
+    if(ncpus > 1)
+    {
+	static ebbrt::SpinBarrier bar(ncpus);
+	ebbrt::EventManager::EventContext context;
+	std::atomic<size_t> count(0);
+	size_t theCpu = ebbrt::Cpu::GetMine();
+	int diff = this->_diff;
+	for (size_t i = 0; i < ncpus; i++) {
+	    // spawn jobs on each core using SpawnRemote
+	    ebbrt::event_manager->SpawnRemote(
+		[this, theCpu, ncpus, &count, &context, i, diff, &sigma, &mix, &num, &min, &max]() {
+		    // get my cpu id
+		    size_t mycpu = ebbrt::Cpu::GetMine();
+		    int starte, ende, factor;
+		    factor = (int)ceil(diff / (float)ncpus);
+		    starte = i * factor;
+		    ende = i * factor + factor;
+		    ende = (ende > diff) ? diff : ende;
+
+		    double msigma = 0;
+		    double mmix = 0;
+		    double mnum = 0;
+		    double mmin = voxel_limits<irtkRealPixel>::max();
+		    double mmax = voxel_limits<irtkRealPixel>::min();
+
+		    runMStep(this, starte, ende, msigma, mmix, mnum, mmin, mmax);
+
+		    // braces for scoping
+		    {
+			// lock_guard auto unlocks end of scope, mutex doesn't work yet
+			std::lock_guard<ebbrt::SpinLock> l(spinlock);
+			if (mmin < min)
+			    min = mmin;
+			if (mmax > max)
+			    max = mmax;
+			sigma += msigma;
+			mix += mmix;
+			num += mnum;
+		    }
+		    
+		    count++;
+		    bar.Wait();
+		    while (count < (size_t)ncpus);
+		    if (mycpu == theCpu) {
+			ebbrt::event_manager->ActivateContext(std::move(context));
+		    }
+		},
+		    indexToCPU(
+			i)); // if i don't add indexToCPU, one of the cores never run ? ?
+	}
+	ebbrt::event_manager->SaveContext(context);
+    }
+    else
+    {
+	runMStep(this, 0, _slices.size(), sigma, mix, num, min, max);
+    }
+#endif
     
     if (mix > 0) {
 	_sigma_cpu = sigma / mix;
@@ -3042,6 +3448,7 @@ void irtkReconstructionEbb::MStep(int iter) {
     }
     if (_sigma_cpu < _step * _step / 6.28)
 	_sigma_cpu = _step * _step / 6.28;
+    
     if (iter > 1)
 	_mix_cpu = mix / num;
     
@@ -3429,7 +3836,7 @@ void irtkReconstructionEbb::SplitImage(irtkRealImage image, int packages,
     // stack.Write(buffer);
     stacks.push_back(stack);
   }
-  cout << "done." << endl;
+//  cout << "done." << endl;
 }
 
 void irtkReconstructionEbb::SplitImageEvenOdd(irtkRealImage image, int packages,
@@ -3448,7 +3855,7 @@ void irtkReconstructionEbb::SplitImageEvenOdd(irtkRealImage image, int packages,
     stacks.push_back(packs2[1]);
   }
 
-  cout << "done." << endl;
+//  cout << "done." << endl;
 }
 
 void irtkReconstructionEbb::SplitImageEvenOddHalf(irtkRealImage image,
@@ -3771,7 +4178,6 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta, double lastIt
     gettimeofday(&tstart, NULL);
 
     for (int iter = 0; iter < iterations; iter++) {
-	PRINTF("iter %d \n", iter);
 	// perform slice-to-volume registrations - skip the first iteration
 	if (iter > 0) {
 	    gettimeofday(&lstart, NULL);
@@ -3941,76 +4347,32 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta, double lastIt
 
     gettimeofday(&tend, NULL);
 
-    PRINTF("SliceToVolumeRegistration: %lf seconds\n",
-		timers[SLICETOVOLUMEREGISTRATION]);
-    PRINTF("InitializeEMValues: %lf seconds\n",
-		timers[INITIALIZEEMVALUES]);
-    PRINTF("CoeffInit: %lf seconds\n", timers[COEFFINIT]);
-    PRINTF("GaussianReconstruction: %lf seconds\n",
-		timers[GAUSSIANRECONSTRUCTION]);
-    PRINTF("SimulateSlices: %lf seconds\n", timers[SIMULATESLICES]);
-    PRINTF("InitializeRobustStatistics: %lf seconds\n",
-		timers[INITIALIZEROBUSTSTATISTICS]);
-    PRINTF("EStep: %lf seconds\n", timers[ESTEP]);
-  
-    PRINTF("Scale: %lf seconds\n", timers[SCALE]);
-    PRINTF("Superresolution: %lf seconds\n", timers[SUPERRESOLUTION]);
-    PRINTF("MStep: %lf seconds\n", timers[MSTEP]);
-    PRINTF("MaskVolume: %lf seconds\n", timers[MASKVOLUME]);
-    PRINTF("Evaluate: %lf seconds\n", timers[EVALUATE]);
-    PRINTF("RestoreSliceIntensities and ScaleVolume: %lf seconds\n",
-		timers[RESTORESLICE]);
+    FORPRINTF("SliceToVolumeRegistration: %lf seconds\n", timers[SLICETOVOLUMEREGISTRATION]);
+    FORPRINTF("InitializeEMValues: %lf seconds\n", timers[INITIALIZEEMVALUES]);
+    FORPRINTF("CoeffInit: %lf seconds\n", timers[COEFFINIT]);
+    FORPRINTF("GaussianReconstruction: %lf seconds\n", timers[GAUSSIANRECONSTRUCTION]);
+    FORPRINTF("SimulateSlices: %lf seconds\n", timers[SIMULATESLICES]);
+    FORPRINTF("InitializeRobustStatistics: %lf seconds\n", timers[INITIALIZEROBUSTSTATISTICS]);
+    FORPRINTF("EStep: %lf seconds\n", timers[ESTEP]);
+    FORPRINTF("Scale: %lf seconds\n", timers[SCALE]);
+    FORPRINTF("Superresolution: %lf seconds\n", timers[SUPERRESOLUTION]);
+    FORPRINTF("MStep: %lf seconds\n", timers[MSTEP]);
+    FORPRINTF("MaskVolume: %lf seconds\n", timers[MASKVOLUME]);
+    FORPRINTF("Evaluate: %lf seconds\n", timers[EVALUATE]);
+    FORPRINTF("RestoreSliceIntensities and ScaleVolume: %lf seconds\n", timers[RESTORESLICE]);
 
-    PRINTF("compute time: %lf seconds\n",
-		(tend.tv_sec - tstart.tv_sec) +
-		((tend.tv_usec - tstart.tv_usec) / 1000000.0));
-    PRINTF("sumCompute: %lf seconds\n", sumCompute);
+    FORPRINTF("compute time: %lf seconds\n", (tend.tv_sec - tstart.tv_sec) + ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
+    FORPRINTF("sumCompute: %lf seconds\n", sumCompute);
   
     float temp2 = 0.0;
     for(i=0;i<13;i++)
     {
 	temp2 += timers[i];
     }
-    PRINTF("sumTimers: %lf seconds\n", temp2);
+    FORPRINTF("sumTimers: %lf seconds\n", temp2);
   
-    PRINTF("checksum _reconstructed = %lf\n",
-		SumRecon());
+    FORPRINTF("checksum _reconstructed = %lf\n", SumRecon());
 
-/*    std::printf("SliceToVolumeRegistration: %lf seconds\n",
-		timers[SLICETOVOLUMEREGISTRATION]);
-    std::printf("InitializeEMValues: %lf seconds\n",
-		timers[INITIALIZEEMVALUES]);
-    std::printf("CoeffInit: %lf seconds\n", timers[COEFFINIT]);
-    std::printf("GaussianReconstruction: %lf seconds\n",
-		timers[GAUSSIANRECONSTRUCTION]);
-    std::printf("SimulateSlices: %lf seconds\n", timers[SIMULATESLICES]);
-    std::printf("InitializeRobustStatistics: %lf seconds\n",
-		timers[INITIALIZEROBUSTSTATISTICS]);
-    std::printf("EStep: %lf seconds\n", timers[ESTEP]);
-  
-    std::printf("Scale: %lf seconds\n", timers[SCALE]);
-    std::printf("Superresolution: %lf seconds\n", timers[SUPERRESOLUTION]);
-    std::printf("MStep: %lf seconds\n", timers[MSTEP]);
-    std::printf("MaskVolume: %lf seconds\n", timers[MASKVOLUME]);
-    std::printf("Evaluate: %lf seconds\n", timers[EVALUATE]);
-    std::printf("RestoreSliceIntensities and ScaleVolume: %lf seconds\n",
-		timers[RESTORESLICE]);
-
-    std::printf("compute time: %lf seconds\n",
-		(tend.tv_sec - tstart.tv_sec) +
-		((tend.tv_usec - tstart.tv_usec) / 1000000.0));
-    std::printf("sumCompute: %lf seconds\n", sumCompute);
-  
-    float temp2 = 0.0;
-    for(i=0;i<13;i++)
-    {
-	temp2 += timers[i];
-    }
-    std::printf("sumTimers: %lf seconds\n", temp2);
-  
-    std::printf("checksum _reconstructed = %lf\n",
-		SumRecon());
-*/
     // save final result
     //reconstructed = GetReconstructed();
     //reconstructed.Write(outputName.c_str());

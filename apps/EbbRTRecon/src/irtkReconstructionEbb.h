@@ -85,7 +85,8 @@ private:
 public:
   vector<irtkRealImage> _slices_resampled;
   int _numThreads;
-
+  int _start, _end, _diff;
+  
   /// Transformations
   vector<irtkRigidTransformation> _transformations_gpu;
   /// Indicator whether slice has an overlap with volumetric mask
@@ -217,7 +218,7 @@ public:
 
   void ReceiveMessage(ebbrt::Messenger::NetworkId nid,
                       std::unique_ptr<ebbrt::IOBuf>&& buffer);
-  void SendRecon();
+  void SendRecon(int iterations);
   void RunRecon(int iterations, double delta, double lastIterLambda, int rec_iterations_first, int rec_iterations_last, bool intensity_matching, double lambda, int levels);
   
   void Print(ebbrt::Messenger::NetworkId nid, const char* str);
@@ -369,9 +370,9 @@ public:
   ///Edge-preserving regularization
   void Regularization(int iter);
 
-  void ParallelAdaptiveRegularization1(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original);
+  void AdaptiveRegularization1(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original);
   
-  void ParallelAdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original);
+  void AdaptiveRegularization2(vector<irtkRealImage>& _b, vector<double>& _factor, irtkRealImage& _original);
   
   ///Edge-preserving regularization with confidence map
   void AdaptiveRegularization(int iter, irtkRealImage& original);
@@ -505,9 +506,10 @@ public:
   static void ResetOrigin(irtkRealImage &image, irtkRigidTransformation& transformation);
 
   void PrepareRegistrationSlices();
-  friend class ParallelAverage;
-  friend class ParallelSimulateSlices;
-  friend class ParallelStackRegistrations;
+  //friend class ParallelAverage;
+  //friend class ParallelSimulateSlices;
+  //friend class ParallelStackRegistrations;
+  //friend class ParallelScale;
 };
 
 inline double irtkReconstructionEbb::G(double x, double s)
@@ -533,7 +535,7 @@ inline irtkRealImage irtkReconstructionEbb::GetMask()
 inline void irtkReconstructionEbb::DebugOn()
 {
   _debug = true;
-  cout << "Debug mode." << endl;
+//  cout << "Debug mode." << endl;
 }
 
 inline void irtkReconstructionEbb::UseAdaptiveRegularisation()
@@ -549,7 +551,7 @@ inline void irtkReconstructionEbb::DebugOff()
 inline void irtkReconstructionEbb::SetSigma(double sigma)
 {
   _sigma_bias = sigma;
-  cout << "_sigma_bias = " << sigma << endl;
+  //cout << "_sigma_bias = " << sigma << endl;
 }
 
 inline void irtkReconstructionEbb::useSINCPSF()
@@ -571,13 +573,13 @@ inline void irtkReconstructionEbb::SpeedupOff()
 inline void irtkReconstructionEbb::GlobalBiasCorrectionOn()
 {
   _global_bias_correction = true;
-  cout << "_global_bias_correction = true " << endl;
+//  cout << "_global_bias_correction = true " << endl;
 }
 
 inline void irtkReconstructionEbb::GlobalBiasCorrectionOff()
 {
   _global_bias_correction = false;
-  cout << "_global_bias_correction = false " << endl;
+//  cout << "_global_bias_correction = false " << endl;
 }
 
 inline void irtkReconstructionEbb::SetLowIntensityCutoff(double cutoff)
