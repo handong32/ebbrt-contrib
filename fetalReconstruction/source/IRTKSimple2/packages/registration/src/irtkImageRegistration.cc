@@ -20,11 +20,11 @@
 
 #define HISTORY
 
-#ifdef HAS_TBB
+/*#ifdef HAS_TBB
 
 tbb::concurrent_bounded_queue<irtkSimilarityMetric *> sim_queue;
 
-#endif
+#endif*/
 
 irtkImageRegistration::irtkImageRegistration()
 {
@@ -399,13 +399,13 @@ void irtkImageRegistration::Finalize(int level)
     swap(tmp_target, _target);
     swap(tmp_source, _source);
 
-#ifdef HAS_TBB
+/*#ifdef HAS_TBB
   irtkSimilarityMetric *metric;
   while (sim_queue.size() > 0) {
     sim_queue.pop(metric);
     delete metric;
   }
-#endif
+  #endif*/
 
   delete tmp_target;
   delete tmp_source;
@@ -470,12 +470,12 @@ void irtkImageRegistration::Run()
     sprintf(buffer, "target_%d.nii.gz", level);
     if (_DebugFlag == true) _target->Write(buffer);
 
-#ifdef HAS_TBB
+/*#ifdef HAS_TBB
     task_scheduler_init init(tbb_no_threads);
 #if USE_TIMING
     tick_count t_start = tick_count::now();
 #endif
-#endif
+#endif*/
 
     // Run the registration filter at this resolution
     for (i = 0; i < _NumberOfSteps[level]; i++) {
@@ -504,14 +504,14 @@ void irtkImageRegistration::Run()
       delta = delta / 2.0;
     }
 
-#ifdef HAS_TBB
+/*#ifdef HAS_TBB
 #if USE_TIMING
     tick_count t_end = tick_count::now();
 //    if (tbb_debug) //cout << this->NameOfClass() << " = " << (t_end - t_start).seconds() << " secs." << endl;
 #endif
     init.terminate();
 
-#endif
+    #endif*/
 
     // Do the final cleaning up for this level
     this->Finalize(level);

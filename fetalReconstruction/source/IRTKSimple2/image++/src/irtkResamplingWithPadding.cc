@@ -14,7 +14,7 @@
 
 #include <irtkResampling.h>
 
-#ifdef HAS_TBB
+/*#ifdef HAS_TBB
 
 template <class VoxelType> class irtkMultiThreadedResamplingWithPadding
 {
@@ -179,7 +179,7 @@ public:
   }
 };
 
-#endif
+#endif*/
 
 template <class VoxelType>
 irtkResamplingWithPadding<VoxelType>::irtkResamplingWithPadding(double new_xsize, double new_ysize, double new_zsize, VoxelType PaddingValue) : irtkResampling<VoxelType>(new_xsize, new_ysize, new_zsize)
@@ -254,29 +254,29 @@ void irtkResamplingWithPadding<VoxelType>::Initialize()
 
 template <class VoxelType> void irtkResamplingWithPadding<VoxelType>::Run()
 {
-#ifdef HAS_TBB
-  int l;
-#else
+//#ifdef HAS_TBB
+    // int l;
+//#else
   int i, j, k, l, u, v, w, pad;
   double val, sum;
   double w1, w2, w3, w4, w5, w6, w7, w8, dx, dy, dz, x, y, z;
-#endif
+//#endif
 
   // Do the initial set up
   this->Initialize();
 
-#ifdef HAS_TBB
+/*#ifdef HAS_TBB
   task_scheduler_init init(tbb_no_threads);
 #if USE_TIMING
   tick_count t_start = tick_count::now();
 #endif
-#endif
+#endif*/
 
   for (l = 0; l < this->_output->GetT(); l++) {
 
-#ifdef HAS_TBB
+/*#ifdef HAS_TBB
     parallel_for(blocked_range<int>(0, this->_output->GetZ(), 1), irtkMultiThreadedResamplingWithPadding<VoxelType>(this, l));
-#else
+    #else*/
 
     for (k = 0; k < this->_output->GetZ(); k++) {
       for (j = 0; j < this->_output->GetY(); j++) {
@@ -417,18 +417,18 @@ template <class VoxelType> void irtkResamplingWithPadding<VoxelType>::Run()
       }
     }
 
-#endif
+//#endif
 
   }
 
-#ifdef HAS_TBB
+  /*#ifdef HAS_TBB
 #if USE_TIMING
   tick_count t_end = tick_count::now();
   if (tbb_debug) cout << this->NameOfClass() << " = " << (t_end - t_start).seconds() << " secs." << endl;
 #endif
   init.terminate();
 
-#endif
+  #endif*/
 
   // Do the final cleaning up
   this->Finalize();
