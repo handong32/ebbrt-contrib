@@ -1,0 +1,7 @@
+build/*/pingpong
+build/*/lib
+*.*~
+*.d
+*.o
+*.elf
+*.elf32

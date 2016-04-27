@@ -79,13 +79,16 @@ private:
   ebbrt::Promise<void> mypromise;
   // this is used to save and load context
   ebbrt::EventManager::EventContext* emec{nullptr};
+  ebbrt::EventManager::EventContext* emec2{nullptr};
   int numNodes;
-
 
 public:
   vector<irtkRealImage> _slices_resampled;
   int _numThreads;
   int _start, _end, _diff;
+  int reconRecv;
+  double tmin, tmax, tsigma, tmix, tnum;
+  //ebbrt::Messenger::NetworkId hostnid;
   
   /// Transformations
   vector<irtkRigidTransformation> _transformations_gpu;
@@ -107,7 +110,8 @@ public:
   irtkRealImage _volume_weights;
   /// Weights for regularization
   irtkRealImage _confidence_map;
-
+  irtkRealImage _addon;
+  
   //EM algorithm
   /// Variance for inlier voxel errors
   double _sigma_cpu;

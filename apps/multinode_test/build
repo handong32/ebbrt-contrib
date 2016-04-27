@@ -1,0 +1,2 @@
+set -x
+make -j CPPFLAGS='-O4 -Wno-unused-but-set-variable -Wno-unused-result -Wno-unused-function' EBBRT_APP_CPPFLAGS='-O4 -Wno-unused-local-typedefs -Wno-unused-variable -Wno-deprecated -Wno-unused-function' Release

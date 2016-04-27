@@ -8,29 +8,33 @@
 #include <math.h>
 #include <stdlib.h>
 //#include "../../src/utils.h"
-#include <string>
-#include <signal.h>
-#include <thread>
 #include <chrono>
+#include <signal.h>
+#include <string>
+#include <thread>
 
 #include "../../src/irtkReconstructionEbb.h"
-#include <irtkResampling.h>
-#include <irtkRegistration.h>
+
+#if 1
+#include <irtkRegistration.h> //this header needs to be at top else compilation error
+#include <irtkImageFunction.h>
+#endif
+
 #include <irtkImageRigidRegistration.h>
 #include <irtkImageRigidRegistrationWithPadding.h>
-#include <irtkImageFunction.h>
+#include <irtkResampling.h>
 #include <irtkTransformation.h>
 
-#include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/program_options.hpp>
 
+#include <ebbrt/Clock.h>
 #include <ebbrt/Context.h>
 #include <ebbrt/ContextActivation.h>
 #include <ebbrt/GlobalIdMap.h>
-#include <ebbrt/StaticIds.h>
 #include <ebbrt/NodeAllocator.h>
 #include <ebbrt/Runtime.h>
-#include <ebbrt/Clock.h>
+#include <ebbrt/StaticIds.h>
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"
@@ -52,9 +56,9 @@ const std::string currentDateTime() {
 }
 
 int main(int argc, char **argv) {
-    Runtime runtime;
-    Context c(runtime);
-    ContextActivation activation(c);
+  Runtime runtime;
+  Context c(runtime);
+  ContextActivation activation(c);
 
   struct timeval totstart, totend;
   gettimeofday(&totstart, NULL);
@@ -141,19 +145,19 @@ int main(int argc, char **argv) {
         "mask,m", po::value<string>(&maskName), "Binary mask to define the "
                                                 "region od interest. Nifti or "
                                                 "Analyze format.")(
-        "input,i", po::value<vector<string> >(&inputStacks)->multitoken(),
+        "input,i", po::value<vector<string>>(&inputStacks)->multitoken(),
         "[stack_1] .. [stack_N]  The input stacks. Nifti or Analyze format.")(
         "transformation,t",
-        po::value<vector<string> >(&inputTransformations)->multitoken(),
+        po::value<vector<string>>(&inputTransformations)->multitoken(),
         "The transformations of the input stack to template in \'dof\' format "
         "used in IRTK. Only rough alignment with correct orienation and some "
         "overlap is needed. Use \'id\' for an identity transformation for at "
         "least one stack. The first stack with \'id\' transformation  will be "
         "resampled as template.")(
-        "thickness", po::value<vector<double> >(&thickness)->multitoken(),
+        "thickness", po::value<vector<double>>(&thickness)->multitoken(),
         "[th_1] .. [th_N] Give slice thickness.[Default: twice voxel size in z "
         "direction]")(
-        "packages,p", po::value<vector<int> >(&packages)->multitoken(),
+        "packages,p", po::value<vector<int>>(&packages)->multitoken(),
         "Give number of packages used during acquisition for each stack. The "
         "stacks will be split into packages during registration iteration 1 "
         "and then into odd and even slices within each package during "
@@ -186,7 +190,7 @@ int main(int argc, char **argv) {
         po::value<double>(&low_intensity_cutoff)->default_value(0.01),
         "Lower intensity threshold for inclusion of voxels in global bias "
         "correction.")("force_exclude",
-                       po::value<vector<int> >(&force_excluded)->multitoken(),
+                       po::value<vector<int>>(&force_excluded)->multitoken(),
                        "force_exclude [number of slices] [ind1] ... [indN]  "
                        "Force exclusion of slices with these indices.")(
         "no_intensity_matching", po::value<bool>(&intensity_matching),
@@ -208,7 +212,7 @@ int main(int argc, char **argv) {
         "evaluation, use only first x)")(
         "no_log", po::value<bool>(&no_log)->default_value(false),
         "  Do not redirect cout and cerr to log files.")(
-        "devices,d", po::value<vector<int> >(&devicesToUse)->multitoken(),
+        "devices,d", po::value<vector<int>>(&devicesToUse)->multitoken(),
         "  Select the CP > 3.0 GPUs on which the reconstruction should be "
         "executed. Default: all devices > CP 3.0")(
         "tfolder", po::value<string>(&tfolder),
@@ -256,19 +260,19 @@ int main(int argc, char **argv) {
 
       if (vm.count("help")) {
         std::cout << "Application to perform reconstruction of volumetric MRI "
-                     "from thick slices." << std::endl << desc << std::endl;
+                     "from thick slices."
+                  << std::endl
+                  << desc << std::endl;
         return EXIT_SUCCESS;
       }
 
       po::notify(vm);
-    }
-    catch (po::error &e) {
+    } catch (po::error &e) {
       std::cerr << "ERROR: " << e.what() << std::endl << std::endl;
       std::cerr << desc << std::endl;
       return EXIT_FAILURE;
     }
-  }
-  catch (std::exception &e) {
+  } catch (std::exception &e) {
     std::cerr << "Unhandled exception while parsing arguments:  " << e.what()
               << ", application will now exit" << std::endl;
     return EXIT_FAILURE;
@@ -281,20 +285,21 @@ int main(int argc, char **argv) {
 
     // set CPU  threads
     if (numThreads > 0) {
-//      cout << "numThreads = " << numThreads << endl;
+      //      cout << "numThreads = " << numThreads << endl;
     } else {
-	//    cout << "Using task_scheduler_init::automatic number of threads" << endl;
+      //    cout << "Using task_scheduler_init::automatic number of threads" <<
+      //    endl;
     }
   }
 
-//  cout << "Reconstructed volume name ... " << outputName << endl;
+  //  cout << "Reconstructed volume name ... " << outputName << endl;
   nStacks = inputStacks.size();
-  //cout << "Number of stacks ... " << nStacks << endl;
+  // cout << "Number of stacks ... " << nStacks << endl;
 
   float tmp_motionestimate = FLT_MAX;
   for (i = 0; i < nStacks; i++) {
     stack.Read(inputStacks[i].c_str());
-    //cout << "Reading stack ... " << inputStacks[i] << endl;
+    // cout << "Reading stack ... " << inputStacks[i] << endl;
     stacks.push_back(stack);
   }
 
@@ -304,8 +309,7 @@ int main(int argc, char **argv) {
       try {
         transformation =
             irtkTransformation::New((char *)(inputTransformations[i].c_str()));
-      }
-      catch (...) {
+      } catch (...) {
         transformation = new irtkRigidTransformation;
         if (templateNumber < 0)
           templateNumber = 0;
@@ -322,11 +326,11 @@ int main(int argc, char **argv) {
     delete rigidTransf;
   }
 
-  //std::printf("*********** Create() ***********\n");
+  // std::printf("*********** Create() ***********\n");
 
   auto reconstruction = irtkReconstructionEbb::Create();
   reconstruction->setNumThreads(numThreads);
-  
+
   if (useSINCPSF) {
     reconstruction->useSINCPSF();
   }
@@ -339,7 +343,7 @@ int main(int argc, char **argv) {
 
   if (num_input_stacks_tuner > 0) {
     nStacks = num_input_stacks_tuner;
-//    cout << "actually used stacks for tuner test .... "
+    //    cout << "actually used stacks for tuner test .... "
     //       << num_input_stacks_tuner << endl;
   }
 
@@ -351,21 +355,21 @@ int main(int argc, char **argv) {
     stack_transformations.erase(stack_transformations.begin() +
                                     num_input_stacks_tuner,
                                 stack_transformations.end());
-//    std::cout << "stack sizes: " << nStacks << " " << stacks.size() << " "
+    //    std::cout << "stack sizes: " << nStacks << " " << stacks.size() << " "
     //            << thickness.size() << " " << stack_transformations.size()
     //        << std::endl;
   }
 
   // Initialise 2*slice thickness if not given by user
   if (thickness.size() == 0) {
-//    cout << "Slice thickness is ";
+    //    cout << "Slice thickness is ";
     for (i = 0; i < nStacks; i++) {
       double dx, dy, dz;
       stacks[i].GetPixelSize(&dx, &dy, &dz);
       thickness.push_back(dz * 2);
       //    cout << thickness[i] << " ";
     }
-    //cout << "." << endl;
+    // cout << "." << endl;
   }
 
   // Output volume
@@ -447,15 +451,15 @@ int main(int argc, char **argv) {
 
   // to redirect output from screen to text files
   if (T1PackageSize == 0 && sfolder.empty()) {
-//    std::cout << "StackRegistrations start" << std::endl;
+    //    std::cout << "StackRegistrations start" << std::endl;
     // volumetric registration
     reconstruction->StackRegistrations(stacks, stack_transformations,
                                        templateNumber);
   }
 
-//  cout << endl;
+  //  cout << endl;
 
-//  std::cout << "reconstruction->CreateAverage" << std::endl;
+  //  std::cout << "reconstruction->CreateAverage" << std::endl;
   average = reconstruction->CreateAverage(stacks, stack_transformations);
 
   // Mask is transformed to the all other stacks and they are cropped
@@ -474,7 +478,7 @@ int main(int argc, char **argv) {
     // volumetric registration
     reconstruction->StackRegistrations(stacks, stack_transformations,
                                        templateNumber);
-//    cout << endl;
+    //    cout << endl;
   }
 
   // Rescale intensities of the stacks to have the same average
@@ -518,50 +522,56 @@ int main(int argc, char **argv) {
   reconstruction->InitializeEM();
 
 //  std::cout << "*************** packages.size() " << packages.size()
-  //          << std::endl;
+//          << std::endl;
 
-
-//  std::printf("lambda = %f delta = %f intensity_matching = %d useCPU = %d disableBiasCorr = %d sigma = %f global_bias_correction = %d lastIterLambda = %f iterations = %d levels = %d\n", lambda, delta, intensity_matching, useCPU, disableBiasCorr, sigma, global_bias_correction, lastIterLambda, iterations, levels);
+//  std::printf("lambda = %f delta = %f intensity_matching = %d useCPU = %d
+//  disableBiasCorr = %d sigma = %f global_bias_correction = %d lastIterLambda =
+//  %f iterations = %d levels = %d\n", lambda, delta, intensity_matching,
+//  useCPU, disableBiasCorr, sigma, global_bias_correction, lastIterLambda,
+//  iterations, levels);
 
 #ifndef __EBB__
 
-//  std::printf("runRecon\n");
-  reconstruction->RunRecon(iterations, delta, lastIterLambda, rec_iterations_first, rec_iterations_last, intensity_matching, lambda, levels);
+  //  std::printf("runRecon\n");
+  reconstruction->RunRecon(iterations, delta, lastIterLambda,
+                           rec_iterations_first, rec_iterations_last,
+                           intensity_matching, lambda, levels);
 
-#else  
+#else
 
   int numNodes = 1;
   reconstruction->setNumNodes(numNodes);
-  
+
   auto bindir = boost::filesystem::system_complete(argv[0]).parent_path() /
-      "/bm/reconstruction.elf32";
-  
+                "/bm/reconstruction.elf32";
+
   /********************* ebbrt ******************/
-  for(i = 0; i < numNodes; i++)
-  {
-      auto node_desc = node_allocator->AllocateNode(bindir.string(), numThreads, 1, 8);
-      node_desc.NetworkId().Then([reconstruction, &c](Future<Messenger::NetworkId> f) 
-      {
-	      // pass context c
-//	      std::printf("*******pinging *********\n");
-	      auto nid = f.Get();
-	      reconstruction->addNid(nid);
-      });
+  for (i = 0; i < numNodes; i++) {
+    auto node_desc =
+        node_allocator->AllocateNode(bindir.string(), numThreads, 1, 2);
+    node_desc.NetworkId().Then(
+        [reconstruction, &c](Future<Messenger::NetworkId> f) {
+          // pass context c
+          //	      std::printf("*******pinging *********\n");
+          auto nid = f.Get();
+          reconstruction->addNid(nid);
+        });
   }
 
-  reconstruction->waitNodes().Then([reconstruction, iterations](ebbrt::Future<void> f) 
-  {
-      f.Get();
-      std::cout << "all nodes initialized" << std::endl;
-      ebbrt::event_manager->Spawn([reconstruction, iterations]() { reconstruction->SendRecon(iterations); });
+  reconstruction->waitNodes().Then(
+      [reconstruction, iterations](ebbrt::Future<void> f) {
+        f.Get();
+        std::cout << "all nodes initialized" << std::endl;
+        ebbrt::event_manager->Spawn([reconstruction, iterations]() {
+          reconstruction->SendRecon(iterations);
+        });
+      });
+
+  reconstruction->waitReceive().Then([&c](ebbrt::Future<void> f) {
+    f.Get();
+    c.io_service_.stop();
   });
 
-  reconstruction->waitReceive().Then([&c](ebbrt::Future<void> f)
-  {
-      f.Get();
-      c.io_service_.stop();
-  });
-				     
   c.Run();
 
   printf("EBBRT ends\n");
@@ -571,8 +581,7 @@ int main(int argc, char **argv) {
   gettimeofday(&totend, NULL);
   std::printf("total time: %lf seconds\n",
               (totend.tv_sec - totstart.tv_sec) +
-	      ((totend.tv_usec - totstart.tv_usec) / 1000000.0));
-  
+                  ((totend.tv_usec - totstart.tv_usec) / 1000000.0));
 }
 
 #pragma GCC diagnostic pop
