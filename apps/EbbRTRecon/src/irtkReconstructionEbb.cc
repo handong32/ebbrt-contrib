@@ -104,15 +104,28 @@ ebbrt::SpinLock spinlock;
 #define FORPRINTF std::printf
 #endif
 
-double sumImage(std::vector<irtkRealImage> a)
+float sumOneImage(irtkRealImage a)
 {
-    double sum = 0.0;
+    float sum = 0.0;
+    irtkRealPixel *ap = a.GetPointerToVoxels();
+
+    for(int j = 0; j < (int)a.GetNumberOfVoxels(); j++)
+    {
+	sum += *ap;
+	ap ++;
+    }
+    return sum;
+}
+
+float sumImage(std::vector<irtkRealImage> a)
+{
+    float sum = 0.0;
     for (unsigned int i = 0; i < a.size(); i++) 
     {
 	irtkRealPixel *ap = a[i].GetPointerToVoxels();
-	for(int j = 0; j < a[i].GetNumberOfVoxels(); j++)
+	for(int j = 0; j < (int)a[i].GetNumberOfVoxels(); j++)
 	{
-	    sum += (double)*ap;
+	    sum += *ap;
 	    ap ++;
 	}
     }
@@ -122,12 +135,13 @@ double sumImage(std::vector<irtkRealImage> a)
 double sumVec(std::vector<double> b)
 {
     double sum = 0.0;
-    for(int i = 0; i < b.size(); i++)
+    for(int i = 0; i < (int)b.size(); i++)
     {
 	sum += b[i];
     }
     return sum;
 }
+
 
 struct membuf : std::streambuf {
   membuf(char *begin, char *end) { this->setg(begin, begin, end); }
@@ -295,6 +309,8 @@ void irtkReconstructionEbb::SendRecon(int iterations) {
   _confidence_map.Initialize(_reconstructed.GetImageAttributes());
   _confidence_map = 0;
 
+  FORPRINTF("$$$$ send_recon_1 _max_intensity = %lf, _min_intensity = %lf, _slices = %f\n\n", _max_intensity, _min_intensity, sumImage(_slices));
+
   for (int i = 0; i < (int)nids.size(); i++) {
     // serialization
     std::ostringstream ofs;
@@ -309,6 +325,10 @@ void irtkReconstructionEbb::SendRecon(int iterations) {
     oa &start &end;
 
     for (int j = start; j < end; j++) {
+      oa &_slices[j];
+    }
+
+    for (int j = 0; j < _slices.size(); j++) {
       oa &_slices[j];
     }
 
@@ -350,252 +370,259 @@ void irtkReconstructionEbb::SendRecon(int iterations) {
 
   emec = &context;
   ebbrt::event_manager->SaveContext(*emec);
-  FORPRINTF("Received back, hosted checksum _reconstructed = %lf\n", SumRecon());
+  FORPRINTF("Received back, hosted checksum _reconstructed = %f\n", SumRecon());
   
   mypromise.SetValue();
 }
 
 void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
                                            std::unique_ptr<IOBuf> &&buffer) {
-  size_t _max_slices;
 
+    size_t _max_slices;
+    auto output = std::string(reinterpret_cast<const char *>(buffer->Data()), buffer->Length());
+    /****** copy sub buffers into one buffer *****/
+    
 #ifndef __EBBRT_BM__
-  auto output = std::string(reinterpret_cast<const char *>(buffer->Data()));
- 
-  else if (output[0] == 'B')
-  {
-      PRINTF("in B\n");
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-      std::istream stream{&sb};
-      boost::archive::text_iarchive ia(stream);
-
-      irtkRealImage tmpa, tmpb;
-      ia & tmpa & tmpb;
-      _addon += tmpa;
-      _confidence_map += tmpb;
-
-      reconRecv ++;
-
-      if(reconRecv == numNodes)
-      {
-	  reconRecv = 0;
-	  std::ostringstream ofs;
-	  boost::archive::text_oarchive oa(ofs);
-	  oa & _addon & _confidence_map;
-	  std::string ts = "B " + ofs.str();
-
-	  for (int i = 0; i < (int)nids.size(); i++) {
-	      Print(nids[i], ts.c_str());
-	  }
-
-	  _addon = 0;
-	  _confidence_map = 0;
-      }
+    if (output[0] == 'B')
+    {
+	PRINTF("in B\n");
+	
+	ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
+	char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
+	membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
+	std::istream stream{&sb};
+	boost::archive::text_iarchive ia(stream);
       
-  }
-  else if (output[0] == 'C') {
-      PRINTF("in C\n");
+	irtkRealImage tmpa, tmpb;
+	ia & tmpa & tmpb;
+	_addon += tmpa;
+	_confidence_map += tmpb;
 
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-      std::istream stream{&sb};
-      boost::archive::text_iarchive ia(stream);
+	reconRecv ++;
+
+	if(reconRecv == numNodes)
+	{
+	    reconRecv = 0;
+	    std::ostringstream ofs;
+	    boost::archive::text_oarchive oa(ofs);
+	    oa & _addon & _confidence_map;
+	    std::string ts = "B " + ofs.str();
+
+	    for (int i = 0; i < (int)nids.size(); i++) {
+		Print(nids[i], ts.c_str());
+	    }
+
+	    _addon = 0;
+	    _confidence_map = 0;
+	}
       
-      double ttmin, ttmax, ttsigma, ttmix, ttnum;
-
-      ia & ttmin & ttmax & ttsigma & ttmix & ttnum;
-      if(ttmin < tmin) tmin = ttmin;
-      if(ttmax > tmax) tmax = ttmax;
-      tsigma += ttsigma;
-      tmix += ttmix;
-      tnum += ttnum;
-      
-      reconRecv ++;
-      if(reconRecv == numNodes)
-      {
-	  reconRecv = 0;
-
-	  std::ostringstream ofs;
-	  boost::archive::text_oarchive oa(ofs);
-	  oa & tmin & tmax & tsigma & tmix & tnum;
-	  std::string ts = "C " + ofs.str();
-
-	  for (int i = 0; i < (int)nids.size(); i++) {
-	      Print(nids[i], ts.c_str());
-	  }
-
-	  tsigma = 0;
-	  tmix = 0;
-	  tnum = 0;
-	  tmin = voxel_limits<irtkRealPixel>::max();
-	  tmax = voxel_limits<irtkRealPixel>::min();
-
-      }
-  }
-  else if (output[0] == 'E') {
-    ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-    char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-    membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-    std::istream stream{&sb};
-    boost::archive::text_iarchive ia(stream);
-
-    irtkRealImage temp;
-    ia &temp;
-    _reconstructed += temp;
-    reconRecv++;
-
-    if (reconRecv == numNodes) {
-      ebbrt::event_manager->ActivateContext(std::move(*emec));
     }
-  }
-  else
-  {
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      FORPRINTF("%s\n", t);
-  }
+    else if (output[0] == 'C') {
+	PRINTF("in C\n");
+      
+	ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
+	char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
+	membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
+	std::istream stream{&sb};
+	boost::archive::text_iarchive ia(stream);
+
+	double ttmin, ttmax, ttsigma, ttmix, ttnum;
+
+	ia & ttmin & ttmax & ttsigma & ttmix & ttnum;
+	if(ttmin < tmin) tmin = ttmin;
+	if(ttmax > tmax) tmax = ttmax;
+	tsigma += ttsigma;
+	tmix += ttmix;
+	tnum += ttnum;
+      
+	reconRecv ++;
+	if(reconRecv == numNodes)
+	{
+	    reconRecv = 0;
+
+	    std::ostringstream ofs;
+	    boost::archive::text_oarchive oa(ofs);
+	    oa & tmin & tmax & tsigma & tmix & tnum;
+	    std::string ts = "C " + ofs.str();
+
+	    for (int i = 0; i < (int)nids.size(); i++) {
+		Print(nids[i], ts.c_str());
+	    }
+
+	    tsigma = 0;
+	    tmix = 0;
+	    tnum = 0;
+	    tmin = voxel_limits<irtkRealPixel>::max();
+	    tmax = voxel_limits<irtkRealPixel>::min();
+
+	}
+    }
+    else if (output[0] == 'E') {
+
+	ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
+	char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
+	membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
+	std::istream stream{&sb};
+	boost::archive::text_iarchive ia(stream);
+
+	irtkRealImage temp;
+	ia &temp;
+	_reconstructed += temp;
+	reconRecv++;
+
+	if (reconRecv == numNodes) {
+	    ebbrt::event_manager->ActivateContext(std::move(*emec));
+	}
+    }
+    else
+    {
+	ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
+	char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
+	FORPRINTF("%s\n", t);
+    }
 #else
 
-  auto output = std::string(reinterpret_cast<const char *>(buffer->Data()),
-                            buffer->Length());
-  if (output[0] == 'B') {
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-      std::istream stream{&sb};
-      boost::archive::text_iarchive ia(stream);
-      ia & _addon & _confidence_map;
-      ebbrt::event_manager->ActivateContext(std::move(*emec2));
-  }
-  else if (output[0] == 'C') {
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-      std::istream stream{&sb};
-      boost::archive::text_iarchive ia(stream);
-      ia & tmin & tmax & tsigma & tmix & tnum;
-      ebbrt::event_manager->ActivateContext(std::move(*emec2));
-  }
-  else if (output[0] == 'E') {
-    nids.clear();
-    //ebbrt::kprintf("Received msg length: %d bytes\n", buffer->Length());
-    //ebbrt::kprintf("Number chain elements: %d\n", buffer->CountChainElements());
-    //ebbrt::kprintf("Computed chain length: %d bytes\n",
-    //             buffer->ComputeChainDataLength());
+    //auto output = std::string(reinterpret_cast<const char *>(buffer->Data()),
+    //                          buffer->Length());
+    if (output[0] == 'B') {
 
-    nids.push_back(nid);
+	ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
+	char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
+	membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
+	std::istream stream{&sb};
+	boost::archive::text_iarchive ia(stream);
 
-    /****** copy sub buffers into one buffer *****/
-    ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-    char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-    membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-    std::istream stream{&sb};
-    /********* ******************************/
-
-    //ebbrt::kprintf("Begin deserialization...\n");
-    /********** deserialize ******************/
-    boost::archive::text_iarchive ia(stream);
-
-    int iterations = 1; // 9 //2 for Shepp-Logan is enough
-    ia &_start &_end;
-    _diff = _end - _start;
-
-    FORPRINTF("_start = %d _end = %d _diff = %d\n", _start, _end, _diff);
-
-    _slices.resize(_diff);
-    _transformations.resize(_diff);
-    _simulated_slices.resize(_diff);
-    _simulated_weights.resize(_diff);
-    _simulated_inside.resize(_diff);
-    _stack_index.resize(_diff);
-
-    for (int k = 0; k < _diff; k++) {
-      ia &_slices[k];
+	ia & _addon & _confidence_map;
+	ebbrt::event_manager->ActivateContext(std::move(*emec2));
     }
+    else if (output[0] == 'C') {
 
-    for (int k = 0; k < _diff; k++) {
-      ia &_transformations[k];
+	ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
+	char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
+	membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
+	std::istream stream{&sb};
+	boost::archive::text_iarchive ia(stream);
+
+	ia & tmin & tmax & tsigma & tmix & tnum;
+	ebbrt::event_manager->ActivateContext(std::move(*emec2));
     }
+    else if (output[0] == 'E') {
+	nids.clear();
+	nids.push_back(nid);
 
-    for (int k = 0; k < _diff; k++) {
-      ia &_simulated_slices[k];
+	ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
+	char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
+	membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
+	std::istream stream{&sb};
+	boost::archive::text_iarchive ia(stream);
+
+	int iterations = 1; // 9 //2 for Shepp-Logan is enough
+	ia &_start &_end;
+	_diff = _end - _start;
+
+	FORPRINTF("_start = %d _end = %d _diff = %d\n", _start, _end, _diff);
+
+	_slices.resize(_diff);
+	_test_slices.resize(_diff);
+	_transformations.resize(_diff);
+	_simulated_slices.resize(_diff);
+	_simulated_weights.resize(_diff);
+	_simulated_inside.resize(_diff);
+	_stack_index.resize(_diff);
+
+	for (int k = 0; k < _diff; k++) {
+	    ia &_slices[k];
+	}
+
+	for (int k = 0; k < 248; k++) {
+	    ia &_test_slices[k];
+	}
+
+	for (int k = 0; k < _diff; k++) {
+	    ia &_transformations[k];
+	}
+
+	for (int k = 0; k < _diff; k++) {
+	    ia &_simulated_slices[k];
+	}
+
+	for (int k = 0; k < _diff; k++) {
+	    ia &_simulated_weights[k];
+	}
+
+	for (int k = 0; k < _diff; k++) {
+	    ia &_simulated_inside[k];
+	}
+
+	for (int k = 0; k < _diff; k++) {
+	    ia &_stack_index[k];
+	}
+
+	int ssend;
+	ia &ssend;
+	_stack_factor.resize(ssend);
+	for (int k = 0; k < ssend; k++) {
+	    ia &_stack_factor[k];
+	}
+	ia &_reconstructed &_mask &_max_slices &_global_bias_correction &iterations &_max_intensity &_min_intensity;
+
+	FORPRINTF("$$$$ receive_message_1 _max_intensity = %lf, _min_intensity = %lf, _slices = %f\n\n", _max_intensity, _min_intensity, sumImage(_slices));
+
+	/********* ******************************/
+	double sigma = 12;
+	double lambda = 0.02;
+	double delta = 150;
+	int levels = 3;
+	double lastIterLambda = 0.01;
+	int rec_iterations;
+	bool global_bias_correction = false;
+	_global_bias_correction = false;
+	// flag to swich the intensity matching on and off
+	bool intensity_matching = true;
+	bool useCPU = true;
+	bool disableBiasCorr = true;
+
+	int rec_iterations_first = 4;
+	int rec_iterations_last = 13;
+
+	_step = 0.0001;
+	_quality_factor = 2;
+	_sigma_bias = 12;
+	_sigma_s_cpu = 0.025;
+	_sigma_s2_cpu = 0.025;
+	_mix_s_cpu = 0.9;
+	_mix_cpu = 0.9;
+	_delta = 1;
+	_lambda = 0.1;
+	_alpha = (0.05 / _lambda) * _delta * _delta;
+	_low_intensity_cutoff = 0.01;
+	_adaptive = false;
+
+	int directions[13][3] = {{1, 0, -1}, {0, 1, -1}, {1, 1, -1}, {1, -1, -1},
+				 {1, 0, 0},  {0, 1, 0},  {1, 1, 0},  {1, -1, 0},
+				 {1, 0, 1},  {0, 1, 1},  {1, 1, 1},  {1, -1, 1},
+				 {0, 0, 1}};
+	for (int i = 0; i < 13; i++)
+	    for (int j = 0; j < 3; j++)
+		_directions[i][j] = directions[i][j];
+
+	InitializeEM();
+
+	FORPRINTF("$$$$ receive_message_2 _max_intensity = %lf, _min_intensity = %lf, _slices = %f\n\n", _max_intensity, _min_intensity, sumImage(_slices));
+	
+	FORPRINTF("$$$$ receive_message_3 _test_slices=%f\n\n", sumImage(_test_slices));
+
+	RunRecon(iterations, delta, lastIterLambda, rec_iterations_first,
+		 rec_iterations_last, intensity_matching, lambda, levels);
+
+	std::ostringstream ofs;
+	boost::archive::text_oarchive oa(ofs);
+	oa &_reconstructed;
+
+	std::string ts = "E " + ofs.str();
+
+	Print(nids[0], ts.c_str());
     }
-
-    for (int k = 0; k < _diff; k++) {
-      ia &_simulated_weights[k];
-    }
-
-    for (int k = 0; k < _diff; k++) {
-      ia &_simulated_inside[k];
-    }
-
-    for (int k = 0; k < _diff; k++) {
-      ia &_stack_index[k];
-    }
-
-    int ssend;
-    ia &ssend;
-    _stack_factor.resize(ssend);
-    for (int k = 0; k < ssend; k++) {
-      ia &_stack_factor[k];
-    }
-    ia &_reconstructed &_mask &_max_slices &_global_bias_correction &iterations
-        &_max_intensity &_min_intensity;
-
-    /********* ******************************/
-    double sigma = 12;
-    double lambda = 0.02;
-    double delta = 150;
-    int levels = 3;
-    double lastIterLambda = 0.01;
-    int rec_iterations;
-    bool global_bias_correction = false;
-    _global_bias_correction = false;
-    // flag to swich the intensity matching on and off
-    bool intensity_matching = true;
-    bool useCPU = true;
-    bool disableBiasCorr = true;
-
-    int rec_iterations_first = 4;
-    int rec_iterations_last = 13;
-
-    _step = 0.0001;
-    _quality_factor = 2;
-    _sigma_bias = 12;
-    _sigma_s_cpu = 0.025;
-    _sigma_s2_cpu = 0.025;
-    _mix_s_cpu = 0.9;
-    _mix_cpu = 0.9;
-    _delta = 1;
-    _lambda = 0.1;
-    _alpha = (0.05 / _lambda) * _delta * _delta;
-    _low_intensity_cutoff = 0.01;
-    _adaptive = false;
-
-    int directions[13][3] = {{1, 0, -1}, {0, 1, -1}, {1, 1, -1}, {1, -1, -1},
-                             {1, 0, 0},  {0, 1, 0},  {1, 1, 0},  {1, -1, 0},
-                             {1, 0, 1},  {0, 1, 1},  {1, 1, 1},  {1, -1, 1},
-                             {0, 0, 1}};
-    for (int i = 0; i < 13; i++)
-      for (int j = 0; j < 3; j++)
-        _directions[i][j] = directions[i][j];
-
-    InitializeEM();
-
-    RunRecon(iterations, delta, lastIterLambda, rec_iterations_first,
-             rec_iterations_last, intensity_matching, lambda, levels);
-
-    std::ostringstream ofs;
-    boost::archive::text_oarchive oa(ofs);
-    oa &_reconstructed;
-
-    std::string ts = "E " + ofs.str();
-
-    Print(nids[0], ts.c_str());
-  }
 #endif
 }
 
@@ -2369,7 +2396,8 @@ void irtkReconstructionEbb::CoeffInit() {
 
   _average_volume_weight = sum / num;
 
-  // std::printf("_average_volume_weight = %lf\n", _average_volume_weight);
+  FORPRINTF("_average_volume_weight = %lf\n", _average_volume_weight);
+  FORPRINTF("coeffinit checksum _reconstructed = %f\n", SumRecon());
 } // end of CoeffInit()
 
 void irtkReconstructionEbb::GaussianReconstruction() {
@@ -2430,6 +2458,8 @@ void irtkReconstructionEbb::GaussianReconstruction() {
     // end of loop for a slice inputIndex
   }
 
+  FORPRINTF("gaussian_reconstructed_1 checksum _reconstructed = %f, _volume_weights = %f\n\n", SumRecon(), sumOneImage(_volume_weights));
+
   // normalize the volume by proportion of contributing slice voxels
   // for each volume voxe
   _reconstructed /= _volume_weights;
@@ -2448,6 +2478,8 @@ void irtkReconstructionEbb::GaussianReconstruction() {
   for (i = 0; i < voxel_num.size(); i++)
     if (voxel_num[i] < 0.1 * median)
       _small_slices.push_back(i);
+
+  FORPRINTF("gaussian_reconstructed_2 checksum _reconstructed = %f, _volume_weights = %f\n\n", SumRecon(), sumOneImage(_volume_weights));
 }
 
 void irtkReconstructionEbb::InitializeEM() {
@@ -2472,7 +2504,7 @@ void irtkReconstructionEbb::InitializeEM() {
 
   // TODO CUDA
   // Find the range of intensities
-#ifndef __EBBRT__BM
+#ifndef __EBBRT_BM__
   _max_intensity = voxel_limits<irtkRealPixel>::min();
   _min_intensity = voxel_limits<irtkRealPixel>::max();
   for (unsigned int i = 0; i < _slices.size(); i++) {
@@ -2518,11 +2550,11 @@ void irtkReconstructionEbb::InitializeEMValues() {
   }
 
   
-  FORPRINTF("*** _weights = %lf ", sumImage(_weights));
-  FORPRINTF("_bias = %lf ", sumImage(_bias));
-  FORPRINTF("_slices = %lf ",sumImage(_slices));
+  FORPRINTF("*** _weights = %f ", sumImage(_weights));
+  FORPRINTF("_bias = %f ", sumImage(_bias));
+  FORPRINTF(" _slices = %f ",sumImage(_slices));
   FORPRINTF("_slice_weight_cpu = %lf ", sumVec(_slice_weight_cpu));
-  FORPRINTF("_scale_cpu = %lf\n *** ",sumVec(_scale_cpu));
+  FORPRINTF("_scale_cpu = %lf *** \n",sumVec(_scale_cpu));
 }
 
 void irtkReconstructionEbb::InitializeRobustStatistics() {
@@ -4340,7 +4372,10 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
                ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
     timers[INITIALIZEEMVALUES] += tempTime;
     sumCompute += tempTime;
+
+#ifdef __EBBRT_BM__
     Print(nids[0], "S InitializeEMValues()");
+#endif
 
     // Calculate matrix of transformation between voxels of slices and volume
     gettimeofday(&lstart, NULL);
@@ -4351,6 +4386,10 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
     timers[COEFFINIT] += tempTime;
     sumCompute += tempTime;
 
+#ifdef __EBBRT_BM__
+    Print(nids[0], "S CoeffInit()");
+#endif
+
     // Initialize reconstructed image with Gaussian weighted reconstruction
     gettimeofday(&lstart, NULL);
     GaussianReconstruction();
@@ -4359,6 +4398,10 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
                ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
     timers[GAUSSIANRECONSTRUCTION] += tempTime;
     sumCompute += tempTime;
+
+#ifdef __EBBRT_BM__
+    Print(nids[0], "S GaussianReconstruction()");
+#endif
 
     // Simulate slices (needs to be done after Gaussian reconstruction)
     gettimeofday(&lstart, NULL);
@@ -4500,7 +4543,7 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
   }
   FORPRINTF("sumTimers: %lf seconds\n", temp2);
 
-  FORPRINTF("checksum _reconstructed = %lf\n", SumRecon());
+  FORPRINTF("checksum _reconstructed = %f\n", SumRecon());
 
   // save final result
   // reconstructed = GetReconstructed();

@@ -230,6 +230,7 @@ public:
   //Structures to store the matrix of transformation between volume and slices
   std::vector<SLICECOEFFS> _volcoeffs;
   vector<irtkRealImage> _slices;
+  vector<irtkRealImage> _test_slices;
   irtkRealImage _reconstructed;
   vector<irtkRigidTransformation> _transformations;
   vector<double> _slices_regCertainty;

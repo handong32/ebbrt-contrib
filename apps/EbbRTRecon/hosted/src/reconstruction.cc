@@ -45,6 +45,21 @@ namespace po = boost::program_options;
 
 using namespace ebbrt;
 
+float msumImage(std::vector<irtkRealImage> a)
+{
+    float sum = 0.0;
+    for (unsigned int i = 0; i < a.size(); i++) 
+    {
+	irtkRealPixel *ap = a[i].GetPointerToVoxels();
+	for(int j = 0; j < (int)a[i].GetNumberOfVoxels(); j++)
+	{
+	    sum += *ap;
+	    ap ++;
+	}
+    }
+    return sum;
+}
+
 const std::string currentDateTime() {
   time_t now = time(0);
   struct tm tstruct;
@@ -518,8 +533,11 @@ int main(int argc, char **argv) {
   if (!tfolder.empty())
     reconstruction->ReadTransformation((char *)tfolder.c_str());
 
+  std::printf("$$$$ main_1 _max_intensity = %lf, _min_intensity = %lf, _slices = %f\n\n", reconstruction->_max_intensity, reconstruction->_min_intensity, msumImage(reconstruction->_slices));
   // Initialise data structures for EM
   reconstruction->InitializeEM();
+
+  std::printf("$$$$ main_2 _max_intensity = %lf, _min_intensity = %lf, _slices = %f\n\n", reconstruction->_max_intensity, reconstruction->_min_intensity, msumImage(reconstruction->_slices));
 
 //  std::cout << "*************** packages.size() " << packages.size()
 //          << std::endl;
@@ -539,7 +557,7 @@ int main(int argc, char **argv) {
 
 #else
 
-  int numNodes = 1;
+  int numNodes = 2;
   reconstruction->setNumNodes(numNodes);
 
   auto bindir = boost::filesystem::system_complete(argv[0]).parent_path() /
