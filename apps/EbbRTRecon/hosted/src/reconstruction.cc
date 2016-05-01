@@ -533,11 +533,11 @@ int main(int argc, char **argv) {
   if (!tfolder.empty())
     reconstruction->ReadTransformation((char *)tfolder.c_str());
 
-  std::printf("$$$$ main_1 _max_intensity = %lf, _min_intensity = %lf, _slices = %f\n\n", reconstruction->_max_intensity, reconstruction->_min_intensity, msumImage(reconstruction->_slices));
+  //std::printf("$$$$ main_1 _max_intensity = %lf, _min_intensity = %lf, _slices = %f\n\n", reconstruction->_max_intensity, reconstruction->_min_intensity, msumImage(reconstruction->_slices));
   // Initialise data structures for EM
   reconstruction->InitializeEM();
 
-  std::printf("$$$$ main_2 _max_intensity = %lf, _min_intensity = %lf, _slices = %f\n\n", reconstruction->_max_intensity, reconstruction->_min_intensity, msumImage(reconstruction->_slices));
+  //std::printf("$$$$ main_2 _max_intensity = %lf, _min_intensity = %lf, _slices = %f\n\n", reconstruction->_max_intensity, reconstruction->_min_intensity, msumImage(reconstruction->_slices));
 
 //  std::cout << "*************** packages.size() " << packages.size()
 //          << std::endl;
@@ -548,14 +548,14 @@ int main(int argc, char **argv) {
 //  useCPU, disableBiasCorr, sigma, global_bias_correction, lastIterLambda,
 //  iterations, levels);
 
-#ifndef __EBB__
+//#ifndef __EBB__
 
   //  std::printf("runRecon\n");
-  reconstruction->RunRecon(iterations, delta, lastIterLambda,
+  /*reconstruction->RunRecon(iterations, delta, lastIterLambda,
                            rec_iterations_first, rec_iterations_last,
-                           intensity_matching, lambda, levels);
+                           intensity_matching, lambda, levels);*/
 
-#else
+//#else
 
   int numNodes = 2;
   reconstruction->setNumNodes(numNodes);
@@ -594,7 +594,15 @@ int main(int argc, char **argv) {
 
   printf("EBBRT ends\n");
 
-#endif
+//#endif
+  Runtime runtime2;
+  Context c2(runtime2);
+  ContextActivation activation2(c2);
+  
+  reconstruction->InitializeEM();
+  reconstruction->RunRecon(iterations, delta, lastIterLambda,
+                           rec_iterations_first, rec_iterations_last,
+                           intensity_matching, lambda, levels);
 
   gettimeofday(&totend, NULL);
   std::printf("total time: %lf seconds\n",

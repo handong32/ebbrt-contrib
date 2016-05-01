@@ -230,7 +230,7 @@ public:
   //Structures to store the matrix of transformation between volume and slices
   std::vector<SLICECOEFFS> _volcoeffs;
   vector<irtkRealImage> _slices;
-  vector<irtkRealImage> _test_slices;
+  //vector<irtkRealImage> _test_slices;
   irtkRealImage _reconstructed;
   vector<irtkRigidTransformation> _transformations;
   vector<double> _slices_regCertainty;
@@ -411,6 +411,7 @@ public:
   ///Save bias field
   void SaveBiasFields();
 
+  void printvolcoeffs();
   ///Remember stdev for bias field
   inline void SetSigma(double sigma);
 
@@ -424,7 +425,7 @@ public:
   ///Set smoothing parameters
   inline void SetSmoothingParameters(double delta, double lambda);
 
-  inline float SumRecon();
+  inline double SumRecon();
 
   ///use in-plane sinc like PSF
   inline void useSINCPSF();
@@ -610,12 +611,12 @@ inline void irtkReconstructionEbb::SetForceExcludedSlices(vector<int>& force_exc
   _force_excluded = force_excluded;
 }
 
-inline float irtkReconstructionEbb::SumRecon() {
-  float sum = 0.0;
+inline double irtkReconstructionEbb::SumRecon() {
+  double sum = 0.0;
   irtkRealPixel *ap = _reconstructed.GetPointerToVoxels();
 
   for (int j = 0; j < _reconstructed.GetNumberOfVoxels(); j++) {
-    sum += *ap;
+      sum += (double)*ap;
     ap++;
   }
   return sum;
