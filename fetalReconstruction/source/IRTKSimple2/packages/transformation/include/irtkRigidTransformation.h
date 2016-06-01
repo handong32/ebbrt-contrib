@@ -172,6 +172,8 @@ public:
   /// Prints the parameters of the transformation
   virtual void Print();
 
+  void Print2();
+  
   /// Check file header
   static int CheckHeader(char *);
 
@@ -324,4 +326,9 @@ inline void irtkRigidTransformation::SetParameters(double *params) {
   this->UpdateMatrix();
 }
 
+inline void irtkRigidTransformation::Print2() {
+    cout << _tx << " " << _ty << " " << _tz << " " << _rx << " " << _ry << " " << _rz << " " << _cosrx << " " << _cosry << " " << _cosrz << " " << _sinrx << " " << _sinry << " " << _sinrz << endl; 
+    
+    _matrix.Print();
+}
 #endif

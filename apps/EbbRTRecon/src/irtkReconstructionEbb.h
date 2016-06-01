@@ -62,11 +62,16 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ebbrt/EbbAllocator.h>
 #include <ebbrt/Future.h>
 #include <ebbrt/Message.h>
+#include <ebbrt/IOBuf.h>
+#include <ebbrt/UniqueIOBuf.h>
+#include <ebbrt/StaticIOBuf.h>
+
 #include "utils.h"
 
 #include <boost/serialization/vector.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/archive/text_iarchive.hpp>
+
 
 class irtkReconstructionEbb : public ebbrt::Messagable<irtkReconstructionEbb>, public irtkObject
 { 
@@ -85,7 +90,7 @@ private:
 public:
   vector<irtkRealImage> _slices_resampled;
   int _numThreads;
-  int _start, _end, _diff;
+  int _start, _end, _diff, _slices_size, _stack_factor_size;
   int reconRecv;
   double tmin, tmax, tsigma, tmix, tnum;
   //ebbrt::Messenger::NetworkId hostnid;
@@ -95,7 +100,7 @@ public:
   /// Indicator whether slice has an overlap with volumetric mask
 
   vector<bool> _slice_inside_gpu;
-
+  
   //VOLUME
   /// Reconstructed volume
   irtkGenericImage<float> _reconstructed_gpu;
@@ -144,7 +149,8 @@ public:
   ///Slice posteriors
   vector<double> _slice_weight_cpu;
   vector<float> _slice_weight_gpu;
-
+  vector<double> slice_potential;
+  
   //Bias field
   ///Variance for bias field
   double _sigma_bias;
@@ -209,8 +215,6 @@ public:
   bool _useCPU;
   bool _debugGPU;
 
-
-
   static ebbrt::EbbRef<irtkReconstructionEbb>
   Create(ebbrt::EbbId id = ebbrt::ebb_allocator->Allocate());
 
@@ -229,9 +233,13 @@ public:
 
   //Structures to store the matrix of transformation between volume and slices
   std::vector<SLICECOEFFS> _volcoeffs;
+  //std::vector<std::vector<std::vector<std::vector<SLICEINFO> > > >_invertvolcoeffs;
+  std::vector<std::vector<std::vector<std::vector<std::vector<SLICEINFO> > > > >_invertvolcoeffs;
+
   vector<irtkRealImage> _slices;
   //vector<irtkRealImage> _test_slices;
   irtkRealImage _reconstructed;
+  irtkRealImage _reconstructed_temp;
   vector<irtkRigidTransformation> _transformations;
   vector<double> _slices_regCertainty;
   vector<bool> _slice_inside_cpu;
@@ -273,6 +281,8 @@ public:
 
   void SaveProbabilityMap(int i);
 
+  //std::unique_ptr<ebbrt::MutUniqueIOBuf> serializeImageI2W(irtkRealImage ri, int i, int j);
+      
   void setNumNodes(int i);
   void setNumThreads(int i);
   void addNid(ebbrt::Messenger::NetworkId nid);
@@ -340,6 +350,8 @@ public:
   ///Mask all slices
   void MaskSlices();
 
+  void InitVoxelStruct();
+  
   ///Calculate transformation matrix between slices and voxels
   void CoeffInit();
 

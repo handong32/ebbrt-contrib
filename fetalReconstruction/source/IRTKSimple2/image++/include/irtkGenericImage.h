@@ -31,6 +31,10 @@
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/archive/text_iarchive.hpp>
 
+#define _1D_
+
+#define TO1D(t, z, y, x, dT, dZ, dY, dX) (t*dZ*dY*dX + z*dY*dX + y*dX + x)
+
 /**
  * Generic class for 2D or 3D images
  *
@@ -46,8 +50,12 @@ public:
 
 protected:
   /// Pointer to image data
+#ifdef _1D_
+  VoxelType *_matrix;
+#else
   VoxelType ****_matrix;
-
+#endif
+  
   /// Serialization
   friend class boost::serialization::access;
   template <class Archive>
@@ -59,11 +67,11 @@ protected:
       ar & _matI2W;
       ar & _matW2I;
       
-      if(_matrix == NULL)
+      /*if(_matrix == NULL)
       {
 	  irtkImageAttributes attr = _attr;
 	  _matrix = Allocate(_matrix, attr._x, attr._y, attr._z, attr._t);
-      }
+	  }*/
 
       n    = this->GetNumberOfVoxels();
       ptr1 = this->GetPointerToVoxels();
@@ -163,6 +171,8 @@ public:
   /// Function for image frame get access
   irtkGenericImage GetFrame(int t) const;
 
+  double Sum();
+  
   //
   // Operators for image arithmetics
   //
@@ -312,13 +322,22 @@ template <class VoxelType>
 inline void irtkGenericImage<VoxelType>::Put(int x, int y, int z,
                                              VoxelType val) {
 #ifdef NO_BOUNDS
-  _matrix[0][z][y][x] = val;
+#ifdef _1D_
+    _matrix[TO1D(0, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)] = val;
+#else
+    _matrix[0][z][y][x] = val;
+#endif
 #else
   if ((x >= _attr._x) || (x < 0) || (y >= _attr._y) || (y < 0) ||
       (z >= _attr._z) || (z < 0)) {
-      //cout << "irtkGenericImage<VoxelType>::Put: parameter out of range\n";
+      cout << "irtkGenericImage<VoxelType>::Put: parameter out of range\n";
+      exit(-1);
   } else {
-    _matrix[0][z][y][x] = static_cast<VoxelType>(val);
+#ifdef _1D_
+      _matrix[TO1D(0, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)] = static_cast<VoxelType>(val);
+#else
+      _matrix[0][z][y][x] = static_cast<VoxelType>(val);
+#endif
   }
 #endif
 }
@@ -327,13 +346,22 @@ template <class VoxelType>
 inline void irtkGenericImage<VoxelType>::Put(int x, int y, int z, int t,
                                              VoxelType val) {
 #ifdef NO_BOUNDS
-  _matrix[t][z][y][x] = val;
+#ifdef _1D_
+    _matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)] = val;
+#else
+    _matrix[t][z][y][x] = val;
+#endif
 #else
   if ((x >= _attr._x) || (x < 0) || (y >= _attr._y) || (y < 0) ||
       (z >= _attr._z) || (z < 0) || (t >= _attr._t) || (t < 0)) {
-      //cout << "irtkGenericImage<VoxelType>::Put: parameter out of range\n";
+      cout << "irtkGenericImage<VoxelType>::Put: parameter out of range\n";
+    exit(-1);
   } else {
+#ifdef _1D_
+    _matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)] = val;
+#else
     _matrix[t][z][y][x] = val;
+#endif
   }
 #endif
 }
@@ -347,13 +375,22 @@ inline void irtkGenericImage<VoxelType>::PutAsDouble(int x, int y, int z,
     val = voxel_limits<VoxelType>::min();
 
 #ifdef NO_BOUNDS
+#ifdef _1D_
+  _matrix[TO1D(0, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)] = static_cast<VoxelType>(val);
+#else
   _matrix[0][z][y][x] = static_cast<VoxelType>(val);
+#endif
 #else
   if ((x >= _attr._x) || (x < 0) || (y >= _attr._y) || (y < 0) ||
       (z >= _attr._z) || (z < 0) || (_attr._t > 0)) {
-    //cout << "irtkGenericImage<Type>::PutAsDouble: parameter out of range\n";
+    cout << "irtkGenericImage<Type>::PutAsDouble: parameter out of range\n";
+    exit(-1);
   } else {
-    _matrix[0][z][y][x] = static_cast<VoxelType>(val);
+#ifdef _1D_
+      _matrix[TO1D(0, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)] = static_cast<VoxelType>(val);
+#else
+      _matrix[0][z][y][x] = static_cast<VoxelType>(val);
+#endif
   }
 #endif
 }
@@ -367,13 +404,22 @@ inline void irtkGenericImage<VoxelType>::PutAsDouble(int x, int y, int z, int t,
     val = voxel_limits<VoxelType>::min();
 
 #ifdef NO_BOUNDS
+#ifdef _1D_
+  _matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)] = static_cast<VoxelType>(val);
+#else
   _matrix[t][z][y][x] = static_cast<VoxelType>(val);
+#endif
 #else
   if ((x >= _attr._x) || (x < 0) || (y >= _attr._y) || (y < 0) ||
       (z >= _attr._z) || (z < 0) || (t >= _attr._t) || (t < 0)) {
-    //cout << "irtkGenericImage<Type>::PutAsDouble: parameter out of range\n";
+    cout << "irtkGenericImage<Type>::PutAsDouble: parameter out of range\n";
+    exit(-1);
   } else {
+#ifdef _1D_
+    _matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)] = static_cast<VoxelType>(val);
+#else
     _matrix[t][z][y][x] = static_cast<VoxelType>(val);
+#endif
   }
 #endif
 }
@@ -381,15 +427,28 @@ inline void irtkGenericImage<VoxelType>::PutAsDouble(int x, int y, int z, int t,
 template <class VoxelType>
 inline VoxelType irtkGenericImage<VoxelType>::Get(int x, int y, int z,
                                                   int t) const {
+    //cout << "Get _attr._t=" << _attr._t << " _attr._z=" << _attr._z << " _attr._y=" << _attr._y << " _attr._x=" << _attr._x;
+    //cout << " t=" << t << " z=" << z << " y=" << y << " x=" << x << endl;
+
 #ifdef NO_BOUNDS
-  return (_matrix[t][z][y][x]);
+#ifdef _1D_
+    return _matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)];
+#else
+    return (_matrix[t][z][y][x]);
+#endif
 #else
   if ((x >= _attr._x) || (x < 0) || (y >= _attr._y) || (y < 0) ||
       (z >= _attr._z) || (z < 0) || (t >= _attr._t) || (t < 0)) {
-      //cout << "irtkGenericImage<Type>::Get: parameter out of range\n";
-    return 0;
+      cout << "irtkGenericImage<Type>::Get: parameter out of range\n";
+      return -1;
   } else {
-    return (_matrix[t][z][y][x]);
+#ifdef _1D_ 
+    //cout << "get = " << _matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)] << endl;
+    return _matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)];
+#else
+    //cout << "get = " << (_matrix[t][z][y][x]) << endl;
+      return (_matrix[t][z][y][x]);
+#endif
   }
 #endif
 }
@@ -397,15 +456,30 @@ inline VoxelType irtkGenericImage<VoxelType>::Get(int x, int y, int z,
 template <class VoxelType>
 inline double irtkGenericImage<VoxelType>::GetAsDouble(int x, int y, int z,
                                                        int t) const {
+
+    //cout << "GetAsDouble t = " << t << " z = " << z << " y = " << y << " x = " << x;
+    //cout << " _attr._t = " << _attr._t << " _attr._z =" << _attr._z << " _attr._y = " << _attr._y << " _attr._x = " << _attr._x << endl;
+
+    //cout << " TO1D " << TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y);
+    //cout << " total = " << _attr._t * _attr._z * _attr._y * _attr._x  << "\n" << endl;
+
 #ifdef NO_BOUNDS
-  return (static_cast<double>(_matrix[t][z][y][x]));
+#ifdef _1D_
+    return (static_cast<double>(_matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)]));
+#else
+    return (static_cast<double>(_matrix[t][z][y][x]));
+#endif
 #else
   if ((x >= _attr._x) || (x < 0) || (y >= _attr._y) || (y < 0) ||
       (z >= _attr._z) || (z < 0) || (t >= _attr._t) || (t < 0)) {
-      //cout << "irtkGenericImage<Type>::GetAsDouble: parameter out of range\n";
-    return 0;
+      cout << "irtkGenericImage<Type>::GetAsDouble: parameter out of range\n";
+      return -1;
   } else {
+#ifdef _1D_
+    return (static_cast<double>(_matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)]));
+#else
     return (static_cast<double>(_matrix[t][z][y][x]));
+#endif
   }
 #endif
 }
@@ -414,14 +488,22 @@ template <class VoxelType>
 inline VoxelType &irtkGenericImage<VoxelType>::operator()(int x, int y, int z,
                                                           int t) {
 #ifdef NO_BOUNDS
-  return (_matrix[t][z][y][x]);
+#ifdef _1D_
+    return _matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)];
+#else
+    return (_matrix[t][z][y][x]);
+#endif
 #else
   if ((x >= _attr._x) || (x < 0) || (y >= _attr._y) || (y < 0) ||
       (z >= _attr._z) || (z < 0) || (t >= _attr._t) || (t < 0)) {
-      //cout << "irtkGenericImage<Type>::(): parameter out of range\n";
-    return _matrix[0][0][0][0];
+      cout << "irtkGenericImage<Type>::(): parameter out of range\n";
+      exit(-1);
   } else {
-    return (_matrix[t][z][y][x]);
+#ifdef _1D_
+      return _matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)];
+#else
+      return (_matrix[t][z][y][x]);
+#endif
   }
 #endif
 }
@@ -430,14 +512,22 @@ template <class VoxelType>
 inline int irtkGenericImage<VoxelType>::VoxelToIndex(int x, int y, int z,
                                                      int t) const {
 #ifdef NO_BOUNDS
-  return (&(_matrix[t][z][y][x]) - &(_matrix[0][0][0][0]));
+#ifdef _1D_
+    return (&(_matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)]) - &(_matrix[0]));
+#else
+    return (&(_matrix[t][z][y][x]) - &(_matrix[0][0][0][0]));
+#endif
 #else
   if ((x >= _attr._x) || (x < 0) || (y >= _attr._y) || (y < 0) ||
       (z >= _attr._z) || (z < 0) || (t >= _attr._t) || (t < 0)) {
-      //cout << "irtkGenericImage<Type>::VoxelToIndex: parameter out of range\n";
-    return 0;
+      cout << "irtkGenericImage<Type>::VoxelToIndex: parameter out of range\n";
+      return -1;
   } else {
-    return (&(_matrix[t][z][y][x]) - &(_matrix[0][0][0][0]));
+#ifdef _1D_
+      return (&(_matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)]) - &(_matrix[0]));
+#else
+      return (&(_matrix[t][z][y][x]) - &(_matrix[0][0][0][0]));
+#endif
   }
 #endif
 }
@@ -447,16 +537,22 @@ inline VoxelType *irtkGenericImage<VoxelType>::GetPointerToVoxels(int x, int y,
                                                                   int z,
                                                                   int t) const {
 #ifdef NO_BOUNDS
-  return &(_matrix[t][z][y][x]);
+#ifdef _1D_
+    return &(_matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)]);
+#else
+    return &(_matrix[t][z][y][x]);
+#endif
 #else
   if ((x >= _attr._x) || (x < 0) || (y >= _attr._y) || (y < 0) ||
       (z >= _attr._z) || (z < 0) || (t >= _attr._t) || (t < 0)) {
-      //cout << "irtkGenericImage<Type>::GetPointerToVoxels: parameter out of "
-      //      "range\n";
-      //cout << x << " " << y << " " << z << " " << t << endl;
-    return NULL;
+      cout << "irtkGenericImage<Type>::GetPointerToVoxels: parameter out of range\n" << endl;
+      return NULL;
   } else {
-    return &(_matrix[t][z][y][x]);
+#ifdef _1D_
+      return &(_matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)]);
+#else
+      return &(_matrix[t][z][y][x]);
+#endif
   }
 #endif
 }
@@ -465,16 +561,22 @@ template <class VoxelType>
 inline void *irtkGenericImage<VoxelType>::GetScalarPointer(int x, int y, int z,
                                                            int t) const {
 #ifdef NO_BOUNDS
-  return &(_matrix[t][z][y][x]);
+#ifdef _1D_
+    return &(_matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)]);
+#else
+    return &(_matrix[t][z][y][x]);
+#endif
 #else
   if ((x >= _attr._x) || (x < 0) || (y >= _attr._y) || (y < 0) ||
       (z >= _attr._z) || (z < 0) || (t >= _attr._t) || (t < 0)) {
-      //cout
-      //  << "irtkGenericImage<Type>::GetScalarPointer: parameter out of range\n";
-      //cout << x << " " << y << " " << z << " " << t << endl;
-    return NULL;
+      cout << "irtkGenericImage<Type>::GetScalarPointer: parameter out of range\n";
+      return NULL;
   } else {
-    return &(_matrix[t][z][y][x]);
+#ifdef _1D_
+      return &(_matrix[TO1D(t, z, y, x, _attr._t, _attr._z, _attr._y, _attr._x)]);
+#else
+      return &(_matrix[t][z][y][x]);
+#endif
   }
 #endif
 }
@@ -516,9 +618,23 @@ inline double irtkGenericImage<VoxelType>::GetScalarTypeMin() const {
   return std::numeric_limits<VoxelType>::min();
 }
 
-template <class VoxelType>
+template <class VoxelType> 
 inline double irtkGenericImage<VoxelType>::GetScalarTypeMax() const {
   return std::numeric_limits<VoxelType>::max();
 }
 
+template <class VoxelType> 
+inline double irtkGenericImage<VoxelType>::Sum()
+{
+    int i, n;
+    double sum = 0;
+    
+    n = this->GetNumberOfVoxels();
+    auto ptr1 = this->GetPointerToVoxels();
+    
+    for (i = 0; i < n; i++) {
+        sum += (double)ptr1[i];
+    }
+    return sum;
+}
 #endif

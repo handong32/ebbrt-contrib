@@ -316,7 +316,14 @@ int main(int argc, char **argv) {
     stack.Read(inputStacks[i].c_str());
     // cout << "Reading stack ... " << inputStacks[i] << endl;
     stacks.push_back(stack);
+
+    /*stack.Get(1, 0, 0, 0);
+    stack.Get(65, 12, 23, 0);
+    stack.Get(3, 15, 18, 0);
+    stack.Get(35, 35, 56, 0);*/
+    //cout << i << " " << stack.Sum() << endl;
   }
+  //cout << "1 stacks[0] =  " << stacks[0].Sum() << endl;
 
   for (i = 0; i < nStacks; i++) {
     irtkTransformation *transformation;
@@ -341,6 +348,7 @@ int main(int argc, char **argv) {
     delete rigidTransf;
   }
 
+  //cout << "2 stacks[0] =  " << stacks[0].Sum() << endl;
   // std::printf("*********** Create() ***********\n");
 
   auto reconstruction = irtkReconstructionEbb::Create();
@@ -364,6 +372,7 @@ int main(int argc, char **argv) {
 
   number_of_force_excluded_slices = force_excluded.size();
 
+  //cout << "3 stacks[0] =  " << stacks[0].Sum() << endl;
   // erase stacks for tuner evaluation
   if (num_input_stacks_tuner > 0) {
     stacks.erase(stacks.begin() + num_input_stacks_tuner, stacks.end());
@@ -374,6 +383,8 @@ int main(int argc, char **argv) {
     //            << thickness.size() << " " << stack_transformations.size()
     //        << std::endl;
   }
+
+  //cout << "4 stacks[0] =  " << stacks[0].Sum() << endl;
 
   // Initialise 2*slice thickness if not given by user
   if (thickness.size() == 0) {
@@ -387,6 +398,7 @@ int main(int argc, char **argv) {
     // cout << "." << endl;
   }
 
+  //cout << "5 stacks[0] =  " << stacks[0].Sum() << endl;
   // Output volume
   irtkRealImage reconstructed;
   irtkRealImage lastReconstructed;
@@ -419,6 +431,8 @@ int main(int argc, char **argv) {
     *mask = reconstruction->CreateMask(*mask);
   }
 
+  //cout << "6 stacks[0] =  " << stacks[0].Sum() << endl;
+  
   // copy to tmp stacks for template determination
   std::vector<irtkRealImage> tmpStacks;
   for (i = 0; i < stacks.size(); i++) {
@@ -435,8 +449,12 @@ int main(int argc, char **argv) {
     // now do it really with best stack
     reconstruction->TransformMask(stacks[templateNumber], m,
                                   stack_transformations[templateNumber]);
+    //cout << "1 stacks[0] =  " << stacks[0].Sum() << endl;
+
     // Crop template stack
     reconstruction->CropImage(stacks[templateNumber], m);
+
+    //cout << "2 stacks[0] =  " << stacks[0].Sum() << endl;
 
     if (debug) {
       m.Write("maskTemplate.nii.gz");
@@ -446,6 +464,8 @@ int main(int argc, char **argv) {
 
   tmpStacks.erase(tmpStacks.begin(), tmpStacks.end());
 
+  //cout << "7 stacks[0] =  " << stacks[0].Sum() << endl;
+  
   std::vector<uint3> stack_sizes;
   uint3 temp; // = (uint3) malloc(sizeof(uint3));
   for (int i = 0; i < stacks.size(); i++) {
@@ -464,15 +484,15 @@ int main(int argc, char **argv) {
   // Set mask to reconstruction object.
   reconstruction->SetMask(mask, smooth_mask);
 
+  cout << "8 stacks[0] =  " << stacks[0].Sum() << endl;
+
   // to redirect output from screen to text files
   if (T1PackageSize == 0 && sfolder.empty()) {
-    //    std::cout << "StackRegistrations start" << std::endl;
+      //std::cout << "StackRegistrations start" << std::endl;
     // volumetric registration
     reconstruction->StackRegistrations(stacks, stack_transformations,
                                        templateNumber);
   }
-
-  //  cout << endl;
 
   //  std::cout << "reconstruction->CreateAverage" << std::endl;
   average = reconstruction->CreateAverage(stacks, stack_transformations);
@@ -482,9 +502,12 @@ int main(int argc, char **argv) {
     // template stack has been cropped already
     if ((i == templateNumber))
       continue;
+
+    
     // transform the mask
     irtkRealImage m = reconstruction->GetMask();
     reconstruction->TransformMask(stacks[i], m, stack_transformations[i]);
+
     // Crop template stack
     reconstruction->CropImage(stacks[i], m);
   }
@@ -553,24 +576,23 @@ int main(int argc, char **argv) {
   //  std::printf("runRecon\n");
   /*reconstruction->RunRecon(iterations, delta, lastIterLambda,
                            rec_iterations_first, rec_iterations_last,
-                           intensity_matching, lambda, levels);*/
-
+                           intensity_matching, lambda, levels);
+  */
 //#else
 
-  int numNodes = 2;
+  
+  int numNodes = 1;
   reconstruction->setNumNodes(numNodes);
-
+  
   auto bindir = boost::filesystem::system_complete(argv[0]).parent_path() /
                 "/bm/reconstruction.elf32";
 
-  /********************* ebbrt ******************/
   for (i = 0; i < numNodes; i++) {
     auto node_desc =
         node_allocator->AllocateNode(bindir.string(), numThreads, 1, 2);
     node_desc.NetworkId().Then(
         [reconstruction, &c](Future<Messenger::NetworkId> f) {
           // pass context c
-          //	      std::printf("*******pinging *********\n");
           auto nid = f.Get();
           reconstruction->addNid(nid);
         });
@@ -589,25 +611,22 @@ int main(int argc, char **argv) {
     f.Get();
     c.io_service_.stop();
   });
-
-  c.Run();
-
-  printf("EBBRT ends\n");
-
-//#endif
-  Runtime runtime2;
-  Context c2(runtime2);
-  ContextActivation activation2(c2);
   
-  reconstruction->InitializeEM();
-  reconstruction->RunRecon(iterations, delta, lastIterLambda,
-                           rec_iterations_first, rec_iterations_last,
-                           intensity_matching, lambda, levels);
-
+  c.Run();
+  
+  
+  printf("EBBRT ends\n");
+  
+//#endif
+  //Runtime runtime2;
+  //Context c2(runtime2);
+  //ContextActivation activation2(c2);
+  
+  			   
   gettimeofday(&totend, NULL);
   std::printf("total time: %lf seconds\n",
               (totend.tv_sec - totstart.tv_sec) +
-                  ((totend.tv_usec - totstart.tv_usec) / 1000000.0));
+	      ((totend.tv_usec - totstart.tv_usec) / 1000000.0));
 }
 
 #pragma GCC diagnostic pop

@@ -72,6 +72,30 @@ public:
   /// Copy constructor
   irtkImageAttributes(const irtkImageAttributes &);
 
+  irtkImageAttributes
+      (int x, int y, int z, int t, 
+// Default voxel size 
+       double dx, double dy, double dz, double dt,
+// Default origin
+       double xorigin,
+       double yorigin,
+       double zorigin,
+       double torigin,						
+       // Default x-axis
+       double  xaxis0,
+       double  xaxis1,
+       double  xaxis2,
+       
+       // Default y-axis
+       double  yaxis0,
+       double  yaxis1,
+       double  yaxis2,
+       
+       // Default z-axis
+       double  zaxis0,
+       double  zaxis1,
+       double  zaxis2);
+
   /// Copy operator
   irtkImageAttributes& operator= (const irtkImageAttributes &);
 
@@ -86,6 +110,8 @@ public:
 
   /// Print attributes
   void Print();
+
+  double Sum();
 
 };
 
@@ -122,6 +148,63 @@ inline irtkImageAttributes::irtkImageAttributes()
   _zaxis[0] = 0;
   _zaxis[1] = 0;
   _zaxis[2] = 1;
+}
+
+inline irtkImageAttributes::irtkImageAttributes
+(int x, int y, int z, int t, 
+// Default voxel size 
+ double dx, double dy, double dz, double dt,
+// Default origin
+double xorigin,
+double yorigin,
+double zorigin,
+double torigin,						
+ // Default x-axis
+double  xaxis0,
+double  xaxis1,
+double  xaxis2,
+ 
+ // Default y-axis
+double  yaxis0,
+double  yaxis1,
+double  yaxis2,
+ 
+ // Default z-axis
+double  zaxis0,
+double  zaxis1,
+double  zaxis2)
+{
+  _x  = x;
+  _y  = y;
+  _z  = z;
+  _t  = t;
+
+  // Default voxel size
+  _dx = dx;
+  _dy = dy;
+  _dz = dz;
+  _dt = dt;
+
+  // Default origin
+  _xorigin = xorigin;
+  _yorigin = yorigin;
+  _zorigin = zorigin;
+  _torigin = torigin;
+
+  // Default x-axis
+  _xaxis[0] = xaxis0;
+  _xaxis[1] = xaxis1;
+  _xaxis[2] = xaxis2;
+
+  // Default y-axis
+  _yaxis[0] = yaxis0;
+  _yaxis[1] = yaxis1;
+  _yaxis[2] = yaxis2;
+
+  // Default z-axis
+  _zaxis[0] = zaxis0;
+  _zaxis[1] = zaxis1;
+  _zaxis[2] = zaxis2;
 }
 
 inline irtkImageAttributes::irtkImageAttributes(const irtkImageAttributes &attr) : irtkObject(attr)
@@ -211,12 +294,12 @@ inline bool irtkImageAttributes::operator==(const irtkImageAttributes &attr) con
 inline void irtkImageAttributes::Print()
 {
 	
-  cerr<<_x<<" "<<_y<<" "<<_z<<" "<<_t<<endl;
-  cerr<<_dx<<" "<<_dy<<" "<<_dz<<" "<<_dt<<endl;
-  cerr<<_xorigin<<" "<<_yorigin<<" "<<_zorigin<<" "<<_torigin<<endl;
-  cerr<<_xaxis[0]<<" "<<_xaxis[1]<<" "<<_xaxis[2]<<endl;
-  cerr<<_yaxis[0]<<" "<<_yaxis[1]<<" "<<_yaxis[2]<<endl;
-  cerr<<_zaxis[0]<<" "<<_zaxis[1]<<" "<<_zaxis[2]<<endl;
+  cout<<_x<<" "<<_y<<" "<<_z<<" "<<_t<<endl;
+  cout<<_dx<<" "<<_dy<<" "<<_dz<<" "<<_dt<<endl;
+  cout<<_xorigin<<" "<<_yorigin<<" "<<_zorigin<<" "<<_torigin<<endl;
+  cout<<_xaxis[0]<<" "<<_xaxis[1]<<" "<<_xaxis[2]<<endl;
+  cout<<_yaxis[0]<<" "<<_yaxis[1]<<" "<<_yaxis[2]<<endl;
+  cout<<_zaxis[0]<<" "<<_zaxis[1]<<" "<<_zaxis[2]<<endl;
 }
 
 inline int irtkImageAttributes::LatticeToIndex(int i, int j, int k, int l) const
@@ -234,5 +317,16 @@ inline void irtkImageAttributes::IndexToLattice(int index, int *i, int *j, int *
 	*i = index%(_x*_y*_z)%(_y*_x)%_x;
 }
 
+inline double irtkImageAttributes::Sum()
+{
+    double sum;
+    sum = 0.0;
 
+    sum += _x+_y+_z+_t + _dx+_dy+_dz+_dt+
+	_xorigin+_yorigin+_zorigin+_torigin+
+	_xaxis[0]+_xaxis[1]+_xaxis[2]+
+	_yaxis[0]+_yaxis[1]+_yaxis[2]+
+	_zaxis[0]+_zaxis[1]+_zaxis[2];
+    return sum;
+}
 #endif

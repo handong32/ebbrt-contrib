@@ -23,6 +23,14 @@ struct POINT3D
 
 };
 
+struct SLICEINFO
+{
+    int x; //pixel x
+    int y; //pixel y
+    //int slice; //slice number
+    float value; //value
+};
+
 enum TTYPE {
   INITIALIZEEMVALUES,
   COEFFINIT,
