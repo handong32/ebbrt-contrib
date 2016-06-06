@@ -44,9 +44,6 @@ class irtkHomogeneousTransformation : public irtkTransformation
 
 protected:
 
-  /// 4 x 4 transformation matrix for homogeneous coordinates
-  irtkMatrix _matrix;
-
   friend class boost::serialization::access;
   template<class Archive>
   void serialize(Archive & ar, const unsigned int version)
@@ -54,6 +51,9 @@ protected:
       ar & _matrix;
   }
 public:
+  /// 4 x 4 transformation matrix for homogeneous coordinates
+  irtkMatrix _matrix;
+
 
   /// Constructor (default)
   irtkHomogeneousTransformation();

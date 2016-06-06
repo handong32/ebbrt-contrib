@@ -484,7 +484,7 @@ int main(int argc, char **argv) {
   // Set mask to reconstruction object.
   reconstruction->SetMask(mask, smooth_mask);
 
-  cout << "8 stacks[0] =  " << stacks[0].Sum() << endl;
+  //cout << "8 stacks[0] =  " << stacks[0].Sum() << endl;
 
   // to redirect output from screen to text files
   if (T1PackageSize == 0 && sfolder.empty()) {

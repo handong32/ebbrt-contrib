@@ -65,6 +65,28 @@ irtkGenericImage<VoxelType>::irtkGenericImage(const irtkImageAttributes &attr)
 }
 
 template <class VoxelType>
+irtkGenericImage<VoxelType>::irtkGenericImage(const irtkImageAttributes &attr, VoxelType ptr[], irtkMatrix matI2W, irtkMatrix matW2I) : irtkBaseImage() {
+    
+    // Initialize data
+    _matrix = NULL;
+    
+    _attr = attr;
+    
+    _matrix = std::move(ptr);
+    
+    _matI2W = std::move(matI2W);
+    
+    _matW2I = std::move(matW2I);
+    
+    // Initialize base class
+    this->irtkBaseImage::Update(attr);
+    
+    // Initialize rest of class
+    //this->Initialize(attr, ptr);
+}
+
+
+template <class VoxelType>
 irtkGenericImage<VoxelType>::irtkGenericImage(const irtkGenericImage &image)
     : irtkBaseImage() {
   int i, n;
@@ -161,33 +183,51 @@ void irtkGenericImage<VoxelType>::Initialize(const irtkImageAttributes &attr) {
   // Free memory
   if ((_attr._x != attr._x) || (_attr._y != attr._y) || (_attr._z != attr._z) ||
       (_attr._t != attr._t)) {
-    // Free old memory
-    if (_matrix != NULL) {
-#ifdef _1D_
-	delete[] _matrix;
-#else
-      Deallocate<VoxelType>(_matrix);
-#endif
-    }
-    // Allocate new memory
-    if (attr._x * attr._y * attr._z * attr._t > 0) {
-#ifdef _1D_
-      _matrix = new VoxelType[attr._x * attr._y * attr._z * attr._t];
-#else
-      _matrix = Allocate(_matrix, attr._x, attr._y, attr._z, attr._t);
-#endif
 
-    } else {
-      _matrix = NULL;
-    }
+      // Free old memory
+      if (_matrix != NULL) {
+#ifdef _1D_
+	  delete[] _matrix;
+#else
+	  Deallocate<VoxelType>(_matrix);
+#endif
+      }
+      
+      // Allocate new memory
+      if (attr._x * attr._y * attr._z * attr._t > 0) {
+#ifdef _1D_
+	  _matrix = new VoxelType[attr._x * attr._y * attr._z * attr._t];
+#else
+	  _matrix = Allocate(_matrix, attr._x, attr._y, attr._z, attr._t);
+#endif
+	  
+      } else {
+	  _matrix = NULL;
+      }
   }
-
+  
   // Initialize base class
   this->irtkBaseImage::Update(attr);
 
   // Initialize voxels
   *this = VoxelType();
 }
+
+/*template <class VoxelType>
+void irtkGenericImage<VoxelType>::Initialize(const irtkImageAttributes &attr, VoxelType ptr[], irtkMatrix matI2W, irtkMatrix matW2I) {
+    
+    _attr = attr;
+    
+    _matrix = ptr;
+    
+    _matI2W = std::move(matI2W);
+    
+    _matW2I = matW2I;
+    
+    // Initialize base class
+    this->irtkBaseImage::Update(attr);
+    }*/
+
 
 template <class VoxelType> void irtkGenericImage<VoxelType>::Clear() 
 {

@@ -28,6 +28,8 @@ See LICENSE for details
 
 #include <iostream>
 #include <cmath>
+#include <memory>
+
 #include <boost/serialization/base_object.hpp>
 #include <boost/serialization/utility.hpp>
 #include <boost/serialization/list.hpp>
@@ -53,8 +55,8 @@ class irtkMatrix : public irtkObject
 	    data_ = NULL;
 	}
     
-    Matrix(int rows, int cols, double data[])
-	: rows_(rows), cols_(cols), data_(data) {}
+    Matrix(int rows, int cols, std::unique_ptr<double[]> data)
+	: rows_(rows), cols_(cols), data_(std::move(data)) {}
 	
     Matrix(int rows, int cols)
 	: rows_(rows), cols_(cols), data_(new double[rows * cols]) {
@@ -118,7 +120,8 @@ public:
 
   /// Constructor for given number of rows and columns
   irtkMatrix(int, int);
-  irtkMatrix(int, int, double[]);
+  //irtkMatrix(int, int, double[]);
+  irtkMatrix(int, int, std::unique_ptr<double[]>);
 
   /// Copy constructor
   irtkMatrix(const irtkMatrix &);

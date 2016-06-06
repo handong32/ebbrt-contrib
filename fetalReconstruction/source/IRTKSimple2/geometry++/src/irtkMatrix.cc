@@ -84,11 +84,11 @@ irtkMatrix::irtkMatrix(int rows, int cols)
   }
 }
 
-irtkMatrix::irtkMatrix(int rows, int cols, double mat[])
+irtkMatrix::irtkMatrix(int rows, int cols, std::unique_ptr<double[]> mat)
 {
     _rows = rows;
     _cols = cols;
-    _matrix = Matrix(rows, cols, mat);
+    _matrix = Matrix(rows, cols, std::move(mat));
     
 }
 
@@ -112,8 +112,8 @@ irtkMatrix::~irtkMatrix()
     //delete _matrix;
     //if (_matrix != NULL) delete _matrix; //Deallocate(_matrix);
     //_matrix = NULL;
-    _rows = 0;
-    _cols = 0;
+    //_rows = 0;
+    //_cols = 0;
 }
 
 void irtkMatrix::Initialize(int rows, int cols)

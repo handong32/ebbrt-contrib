@@ -252,7 +252,6 @@ public:
   vector<float> _stack_factor;
   vector<int> _stack_index;
 
-  
   ///global bias correction flag
   bool _global_bias_correction;
 
