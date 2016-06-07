@@ -88,13 +88,14 @@ private:
   int numNodes;
 
 public:
+  ebbrt::Promise<int> testFuture;
+  ebbrt::Promise<int> gaussianreconFuture;
   vector<irtkRealImage> _slices_resampled;
   int _numThreads;
   int _start, _end, _diff, _slices_size, _stack_factor_size;
   int reconRecv;
   double tmin, tmax, tsigma, tmix, tnum;
-  //ebbrt::Messenger::NetworkId hostnid;
-  
+
   /// Transformations
   vector<irtkRigidTransformation> _transformations_gpu;
   /// Indicator whether slice has an overlap with volumetric mask
@@ -108,6 +109,9 @@ public:
   /// Flag to say whether the template volume has been created
   bool _template_created;
 
+
+  //pointers for messsage
+  int* gaussreconptr = NULL;
 
   /// Flag to say whether we have a mask
   bool _have_mask;
@@ -230,6 +234,12 @@ public:
   void RunRecon(int iterations, double delta, double lastIterLambda, int rec_iterations_first, int rec_iterations_last, bool intensity_matching, double lambda, int levels);
   
   void Print(ebbrt::Messenger::NetworkId nid, const char* str);
+  std::unique_ptr<ebbrt::MutUniqueIOBuf> SerializeSlices();
+  std::unique_ptr<ebbrt::MutUniqueIOBuf> SerializeMask();
+  std::unique_ptr<ebbrt::MutUniqueIOBuf> SerializeReconstructed();
+  std::unique_ptr<ebbrt::MutUniqueIOBuf> SerializeTransformations();
+  void DeserializeSlice(ebbrt::IOBuf::DataPointer& dp, irtkRealImage& tmp);
+  void DeserializeTransformations(ebbrt::IOBuf::DataPointer& dp, irtkRigidTransformation& tmp);
 
   //Structures to store the matrix of transformation between volume and slices
   std::vector<SLICECOEFFS> _volcoeffs;
@@ -251,7 +261,8 @@ public:
   
   vector<float> _stack_factor;
   vector<int> _stack_index;
-
+  vector<int> _voxel_num;
+  
   ///global bias correction flag
   bool _global_bias_correction;
 

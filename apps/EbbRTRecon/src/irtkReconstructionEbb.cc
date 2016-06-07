@@ -75,6 +75,7 @@
 #include <ebbrt/SpinBarrier.h>
 #include <ebbrt/StaticIOBuf.h>
 #include <ebbrt/UniqueIOBuf.h>
+#include <ebbrt/Future.h>
 
 #ifdef __EBBRT_BM__
 #include <ebbrt/SpinLock.h>
@@ -523,119 +524,185 @@ ebbrt::Future<void> irtkReconstructionEbb::Ping(Messenger::NetworkId nid) {
   return ret;
 }
 
-void irtkReconstructionEbb::SendRecon(int iterations) {
-
-  // ebbrt::EventManager::EventContext context;
-
-  /*int start, end, factor;
-
-  _slices_size = (int)_slices.size();
-  _stack_factor_size = (int) _stack_factor.size();
-
-  // all sizes are the same
-  FORPRINTF("max_slices = %ld\n", _slices.size());
-
-  for (int i = 0; i < (int)nids.size(); i++) {
-      // serialization
-      std::ostringstream ofs;
-      boost::archive::text_oarchive oa(ofs);
-
-      //_slices
-      factor = (int)ceil(_slices_size / (float)numNodes);
-      start = i * factor;
-      end = i * factor + factor;
-      end = (end > _slices_size) ? _slices_size : end;
-
-      oa & start & end & _slices_size & _stack_factor_size &
-  _global_bias_correction & iterations & _max_intensity & _min_intensity;
-
-      std::string ts = "A " + ofs.str();
-
-      FORPRINTF("%s %ld\n", nids[i].ToString().data(), ts.length());
-
-      Print(nids[i], ts.c_str());
-  }
-
-  emec = &context;
-  ebbrt::event_manager->SaveContext(*emec);*/
-
-    ebbrt::EventManager::EventContext context;
-  for (int i = 0; i < (int)nids.size(); i++) {
-
-    auto buf = MakeUniqueIOBuf(3 * sizeof(int));
+std::unique_ptr<ebbrt::MutUniqueIOBuf> irtkReconstructionEbb::SerializeSlices()
+{
+    auto buf = MakeUniqueIOBuf(1 * sizeof(int));
     auto dp = buf->GetMutDataPointer();
-    dp.Get<int>() = 0;
     dp.Get<int>() = _slices.size();
-    dp.Get<int>() = _transformations.size();
 
-    for (int j = 0; j < _slices.size(); j++) {
-	//printStackAttr(_slices[j]);
+    for (int j = 0; j < _slices.size(); j++) 
+    {
 	buf->PrependChain(std::move(serializeImageAttr(_slices[j])));
-	
-	//printI2W(_slices[j]);
 	buf->PrependChain(std::move(serializeImageI2W(_slices[j])));
-	
-	//printW2I(_slices[j]);
 	buf->PrependChain(std::move(serializeImageW2I(_slices[j])));
-	
-	//printSlices(_slices[j]);
 	buf->PrependChain(std::move(serializeSlices(_slices[j])));
     }
-
-    /*FORPRINTF("\n_reconstructed\n");
-    printStackAttr(_reconstructed);
-    printI2W(_reconstructed);
-    printW2I(_reconstructed);
-    printSlices(_reconstructed);
     
-    FORPRINTF("\n_mask\n");
-    printStackAttr(_mask);
-    printI2W(_mask);
-    printW2I(_mask);
-    printSlices(_mask);*/
+    return buf;
+}
 
-    buf->PrependChain(std::move(serializeImageAttr(_reconstructed)));
-    buf->PrependChain(std::move(serializeImageI2W(_reconstructed)));
-    buf->PrependChain(std::move(serializeImageW2I(_reconstructed)));
-    buf->PrependChain(std::move(serializeSlices(_reconstructed)));
-
+std::unique_ptr<ebbrt::MutUniqueIOBuf> irtkReconstructionEbb::SerializeMask()
+{
+    auto buf = MakeUniqueIOBuf(0);
     buf->PrependChain(std::move(serializeImageAttr(_mask)));
     buf->PrependChain(std::move(serializeImageI2W(_mask)));
     buf->PrependChain(std::move(serializeImageW2I(_mask)));
     buf->PrependChain(std::move(serializeSlices(_mask)));
+    return buf;
+}
+
+std::unique_ptr<ebbrt::MutUniqueIOBuf> irtkReconstructionEbb::SerializeReconstructed()
+{
+    auto buf = MakeUniqueIOBuf(0);
+    buf->PrependChain(std::move(serializeImageAttr(_reconstructed)));
+    buf->PrependChain(std::move(serializeImageI2W(_reconstructed)));
+    buf->PrependChain(std::move(serializeImageW2I(_reconstructed)));
+    buf->PrependChain(std::move(serializeSlices(_reconstructed)));
+    return buf;
+}
+
+std::unique_ptr<ebbrt::MutUniqueIOBuf> irtkReconstructionEbb::SerializeTransformations()
+{
+    auto buf = MakeUniqueIOBuf(1 * sizeof(int));
+    auto dp = buf->GetMutDataPointer();
+    dp.Get<int>() = _transformations.size();
 
     for(int j = 0; j < _transformations.size(); j++)
     {
-	//FORPRINTF("%lf %lf\n", _transformations[j].Sum(), _transformations[j]._matrix.Sum());
 	buf->PrependChain(std::move(serializeRigidTrans(_transformations[j])));
     }
 
-    FORPRINTF("Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+    return buf;
+}
 
-    SendMessage(nids[i], std::move(buf));
-  }
-  emec = &context;
-  ebbrt::event_manager->SaveContext(*emec);
-  
-  /*  FORPRINTF("%d\n", (int)_transformations.size());
-    for(int i = 0; i < _transformations.size(); i++)
+void irtkReconstructionEbb::DeserializeSlice(ebbrt::IOBuf::DataPointer& dp, irtkRealImage& tmp)
+{
+    auto x = dp.Get<int>();
+    auto y = dp.Get<int>();
+    auto z = dp.Get<int>();
+    auto t = dp.Get<int>();
+
+    auto dx = dp.Get<double>();
+    auto dy = dp.Get<double>();
+    auto dz = dp.Get<double>();
+    auto dt = dp.Get<double>();
+
+    auto xorg = dp.Get<double>();
+    auto yorg = dp.Get<double>();
+    auto zorg = dp.Get<double>();
+    auto torg = dp.Get<double>();
+
+    auto xa0 = dp.Get<double>();
+    auto xa1 = dp.Get<double>();
+    auto xa2 = dp.Get<double>();
+
+    auto ya0 = dp.Get<double>();
+    auto ya1 = dp.Get<double>();
+    auto ya2 = dp.Get<double>();
+
+    auto za0 = dp.Get<double>();
+    auto za1 = dp.Get<double>();
+    auto za2 = dp.Get<double>();
+
+    //FORPRINTF("%d %d %d %d %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf\n",
+    irtkImageAttributes at(
+	x, y, z, t,
+	dx, dy, dz, dt,
+	xorg, yorg, zorg, torg,
+	xa0, xa1, xa2, ya0,
+	ya1, ya2, za0, za1,
+	za2
+	);
+
+    auto rows = dp.Get<int>();
+    auto cols = dp.Get<int>();
+    //auto ptr = new double[rows * cols];
+    auto ptr = std::make_unique<double[]>(rows * cols);
+    dp.Get(rows * cols * sizeof(double), ptr.get());
+    irtkMatrix matI2W(rows, cols, std::move(ptr));
+	
+    rows = dp.Get<int>();
+    cols = dp.Get<int>();
+    //ptr = new double[rows * cols];
+    ptr = std::make_unique<double[]>(rows * cols);
+    dp.Get(rows * cols * sizeof(double), ptr.get());
+    irtkMatrix matW2I(rows, cols, std::move(ptr));
+	
+    auto n = dp.Get<int>();
+    auto ptr2 = new double[n];
+    dp.Get(n*sizeof(double), ptr2);
+	
+    irtkRealImage ri(at, ptr2, matI2W, matW2I);
+
+    tmp = std::move(ri);
+}
+
+void irtkReconstructionEbb::DeserializeTransformations(ebbrt::IOBuf::DataPointer& dp, irtkRigidTransformation& tmp)
+{
+    	auto tx = dp.Get<double>();
+	auto ty = dp.Get<double>();
+	auto tz = dp.Get<double>();
+
+	auto rx = dp.Get<double>();
+	auto ry = dp.Get<double>();
+	auto rz = dp.Get<double>();
+
+	auto cosrx = dp.Get<double>();
+	auto cosry = dp.Get<double>();
+	auto cosrz = dp.Get<double>();
+
+	auto sinx = dp.Get<double>();
+	auto siny = dp.Get<double>();
+	auto sinz = dp.Get<double>();
+	
+	auto status0 = dp.Get<int>();
+	auto status1 = dp.Get<int>();
+	auto status2 = dp.Get<int>();
+	auto status3 = dp.Get<int>();
+	auto status4 = dp.Get<int>();
+	auto status5 = dp.Get<int>();
+
+	auto rows = dp.Get<int>();
+	auto cols = dp.Get<int>();
+	auto ptr = std::make_unique<double[]>(rows * cols);
+	dp.Get(rows * cols * sizeof(double), ptr.get());
+	irtkMatrix mat(rows, cols, std::move(ptr));
+	
+	//FORPRINTF("%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %d %d %d %d %d %d %d %d %lf\n", tx, ty, tz, rx, ry, rz, cosrx, cosry, cosrz, sinx, siny, sinz, status0, status1, status2, status3, status4, status5, rows, cols, mat.Sum());
+	irtkRigidTransformation irt(tx, ty, tz, rx, ry, rz, cosrx, cosry, cosrz, sinx, siny, sinz, status0, status1, status2, status3, status4, status5, mat);
+
+	tmp = std::move(irt);
+	//_transformations[i] = std::move(irt);
+	//FORPRINTF("%lf %lf\n", _transformations[i].Sum(), _transformations[i]._matrix.Sum());
+}
+
+void irtkReconstructionEbb::SendRecon(int iterations) {
+    
+    /*for (int i = 0; i < (int)nids.size(); i++) 
     {
-	_transformations[i].Print3();
+	auto buf = MakeUniqueIOBuf(1 * sizeof(int));
+	auto dp = buf->GetMutDataPointer();
+	dp.Get<int>() = 0;
+
+	buf->PrependChain(std::move(SerializeSlices()));
+	buf->PrependChain(std::move(SerializeReconstructed()));
+	buf->PrependChain(std::move(SerializeMask()));
+	buf->PrependChain(std::move(SerializeTransformations()));
+	
+	FORPRINTF("SendRecon : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+	SendMessage(nids[i], std::move(buf));
 	}*/
     
-  //mypromise.SetValue();
-  //return;
+    double delta = 150;
+    double lastIterLambda = 0.01;
+    int rec_iterations_first = 4;
+    int rec_iterations_last = 13;
+    bool intensity_matching = true;
+    double lambda = 0.02;
+    int levels = 3;
 
-  double delta = 150;
-  double lastIterLambda = 0.01;
-  int rec_iterations_first = 4;
-  int rec_iterations_last = 13;
-  bool intensity_matching = true;
-  double lambda = 0.02;
-  int levels = 3;
-
-  RunRecon(iterations, delta, lastIterLambda, rec_iterations_first,
-           rec_iterations_last, intensity_matching, lambda, levels);
+    RunRecon(iterations, delta, lastIterLambda, rec_iterations_first,
+	     rec_iterations_last, intensity_matching, lambda, levels);
 }
 
 void irtkReconstructionEbb::addNid(ebbrt::Messenger::NetworkId nid) {
@@ -2453,9 +2520,9 @@ void runCoeffInit(irtkReconstructionEbb *reconstructor, int start, int end) {
     reconstructor->_slice_inside_cpu[inputIndex] = slice_inside;
   } // end of loop through the slices
 
-  reconstructor->printvolcoeffs();
+  /*reconstructor->printvolcoeffs();
   FORPRINTF("sum bool = %d\n", sumBool(reconstructor->_slice_inside_cpu));
-  FORPRINTF("sum recon = %lf\n", reconstructor->SumRecon());
+  FORPRINTF("sum recon = %lf\n", reconstructor->SumRecon());*/
 }
 
 class ParallelCoeffInit {
@@ -2486,54 +2553,45 @@ void irtkReconstructionEbb::CoeffInit() {
   _slice_inside_cpu.resize(_slices.size());
 
 #ifndef __EBBRT_BM__
+  int diff = _slices.size();
+  int factor = (int)ceil(diff / (float)(numNodes+1));
+  _start = 0 * factor;
+  _end = 0 * factor + factor;
+  _end = (_end > diff) ? diff : _end;
+  
+  FORPRINTF("_start = %d, _end = %d\n", _start, _end);
+
+  for (int i = 0; i < (int)nids.size(); i++) 
+  {
+      int start = (i+1) * factor;
+      int end = (i+1) * factor + factor;
+      end = (end > diff) ? diff : end;
+
+      auto buf = MakeUniqueIOBuf(3 * sizeof(int));
+      auto dp = buf->GetMutDataPointer();
+      dp.Get<int>() = 0;
+      dp.Get<int>() = start;
+      dp.Get<int>() = end;
+      
+      buf->PrependChain(std::move(SerializeSlices()));
+      buf->PrependChain(std::move(SerializeReconstructed()));
+      buf->PrependChain(std::move(SerializeMask()));
+      buf->PrependChain(std::move(SerializeTransformations()));
+      
+      FORPRINTF("CoeffInit : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+      SendMessage(nids[i], std::move(buf));
+  }
   ParallelCoeffInit coeffinit(this, _numThreads);
   coeffinit();
-/*ebbrt::EventManager::EventContext context2;
-int start, end, factor;
-
-for(int i = 0; i < (int)nids.size(); i++)
-{
-    std::ostringstream ofs;
-    boost::archive::text_oarchive oa(ofs);
-
-    factor = (int)ceil(_slices_size / (float)numNodes);
-    start = i * factor;
-    end = i * factor + factor;
-    end = (end > _slices_size) ? _slices_size : end;
-
-    for (int j = start; j < end; j++) {
-        oa& _slices[j];
-    }
-
-    for (int j = start; j < end; j++) {
-        oa& _transformations[j];
-    }
-
-    for (int j = start; j < end; j++) {
-        oa& _volcoeffs[j];
-    }
-
-    std::vector<bool> _slice_inside_cpu_sub;
-    for (int j = start; j < end; j++) {
-        _slice_inside_cpu_sub.push_back(_slice_inside_cpu[j]);
-    }
-    oa& _slice_inside_cpu_sub;
-    oa& _reconstructed& _quality_factor& _mask;
-
-    std::string ts = "B " + ofs.str();
-    Print(nids[i], ts.c_str());
-}
-emec2 = &context2;
-ebbrt::event_manager->SaveContext(*emec2);
-*/
 #else
+  FORPRINTF("_start = %d, _end = %d\n", _start, _end);
   size_t ncpus = ebbrt::Cpu::Count();
   if (ncpus > 1) {
     static ebbrt::SpinBarrier bar(ncpus);
     ebbrt::EventManager::EventContext context;
     std::atomic<size_t> count(0);
     size_t theCpu = ebbrt::Cpu::GetMine();
-    int diff = this->_diff;
+    int diff = _slices.size();
     for (size_t i = 0; i < ncpus; i++) {
       // spawn jobs on each core using SpawnRemote
       ebbrt::event_manager->SpawnRemote(
@@ -2561,29 +2619,6 @@ ebbrt::event_manager->SaveContext(*emec2);
   } else {
     runCoeffInit(this, 0, _slices.size());
   }
-
-  std::ostringstream ofs;
-  boost::archive::text_oarchive oa(ofs);
-  oa &_start &_end;
-
-  for (int j = 0; j < _diff; j++) {
-    oa &_slices[j];
-  }
-
-  for (int j = 0; j < _diff; j++) {
-    oa &_transformations[j];
-  }
-
-  for (int j = 0; j < _diff; j++) {
-    oa &_volcoeffs[j];
-  }
-
-  oa &_slice_inside_cpu;
-
-  std::string ts = "B " + ofs.str();
-
-  Print(nids[0], ts.c_str());
-
 #endif
 
   // prepare image for volume weights, will be needed for Gaussian
@@ -2620,120 +2655,16 @@ ebbrt::event_manager->SaveContext(*emec2);
 
   _average_volume_weight = sum / num;
 
-  /*  FORPRINTF("\n********* COEFFINIT ***********\n\t_average_volume_weight =
-   * %lf\n\t_volume_weights = %f\n\tchecksum _reconstructed =
-   * %f\n*********************\n", _average_volume_weight,
-   * sumOneImage(_volume_weights), SumRecon());*/
+  FORPRINTF("\n********* COEFFINIT ***********\n\t_average_volume_weight = %lf\n\t_volume_weights = %f\n\tchecksum _reconstructed = %f\n*********************\n", _average_volume_weight, sumOneImage(_volume_weights), SumRecon());
+  
+  
+#ifndef __EBBRT_BM__
+  auto tf = testFuture.GetFuture();
+  tf.Block();
+  FORPRINTF("CoeffInit: returned from future\n");
+#endif
 
 } // end of CoeffInit()
-
-/*void irtkReconstructionEbb::GaussianReconstruction() {
-
-  unsigned int inputIndex;
-  int i, j, k, n, px, py, pz;
-  irtkRealImage slice;
-  double scale;
-  //POINT3D p;
-  vector<int> voxel_num;
-  //int slice_vox_num;
-  float val;
-
-  for(i=0;i<_slices.size();i++)
-  {
-      voxel_num.push_back(0);
-  }
-
-  // clear _reconstructed image
-  _reconstructed = 0;
-
-  auto reconAttr = _reconstructed.GetImageAttributes();
-  FORPRINTF("irtkReconstructionEbb::GaussianReconstruction - _x = %d, _y = %d,
-_z = %d\n", reconAttr._x, reconAttr._y, reconAttr._z);
-
-  for(px=0;px<reconAttr._x;px++)
-  {
-      for(py=0;py<reconAttr._y;py++)
-      {
-          for(pz=0;pz<reconAttr._z;pz++)
-          {
-              for(inputIndex = 0; inputIndex < _slices.size(); inputIndex ++)
-              {
-                  // copy the current slice
-                  slice = _slices[inputIndex];
-                  // alias the current bias image
-                  irtkRealImage &b = _bias[inputIndex];
-                  // read current scale factor
-                  scale = _scale_cpu[inputIndex];
-
-                  for(n=0;n<_invertvolcoeffs[px][py][pz][inputIndex].size();n++)
-                  {
-                      i = _invertvolcoeffs[px][py][pz][inputIndex][n].x;
-                      j = _invertvolcoeffs[px][py][pz][inputIndex][n].y;
-                      val = _invertvolcoeffs[px][py][pz][inputIndex][n].value;
-
-                      if (slice(i, j, 0) != -1)
-                      {
-                          // biascorrect and scale the slice
-                          slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
-                          voxel_num[inputIndex] += 1;
-                          _reconstructed(px, py, pz) += val * slice(i, j, 0);
-                      }
-
-                  }
-
-              }
-
-              for(n=0;n<_invertvolcoeffs[px][py][pz].size();n++)
-              {
-                  inputIndex = _invertvolcoeffs[px][py][pz][n].slice;
-                  i = _invertvolcoeffs[px][py][pz][n].x;
-                  j = _invertvolcoeffs[px][py][pz][n].y;
-                  val = _invertvolcoeffs[px][py][pz][n].value;
-
-                  // copy the current slice
-                  slice = _slices[inputIndex];
-
-                  if (slice(i, j, 0) != -1)
-                  {
-                      // alias the current bias image
-                      irtkRealImage &b = _bias[inputIndex];
-                      // read current scale factor
-                      scale = _scale_cpu[inputIndex];
-
-                      // biascorrect and scale the slice
-                      slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
-
-                      voxel_num[inputIndex] += 1;
-
-                      _reconstructed(px, py, pz) += val * slice(i, j, 0);
-                  }
-                  }
-          }
-      }
-  }
-
-  // normalize the volume by proportion of contributing slice voxels
-  // for each volume voxe
-  _reconstructed /= _volume_weights;
-  //_reconstructed_temp /= _volume_weights;
-
-  // now find slices with small overlap with ROI and exclude them.
-  vector<int> voxel_num_tmp;
-  for (i = 0; i < voxel_num.size(); i++)
-    voxel_num_tmp.push_back(voxel_num[i]);
-
-  // find median
-  sort(voxel_num_tmp.begin(), voxel_num_tmp.end());
-  int median = voxel_num_tmp[round(voxel_num_tmp.size() * 0.5)];
-
-  // remember slices with small overlap with ROI
-  _small_slices.clear();
-  for (i = 0; i < voxel_num.size(); i++)
-    if (voxel_num[i] < 0.1 * median)
-      _small_slices.push_back(i);
-
-  FORPRINTF("irtkReconstructionEbb::GaussianReconstruction - END\n");
-}*/
 
 void irtkReconstructionEbb::GaussianReconstruction() {
 
@@ -2742,14 +2673,29 @@ void irtkReconstructionEbb::GaussianReconstruction() {
   irtkRealImage slice;
   double scale;
   POINT3D p;
-  vector<int> voxel_num;
+  //vector<int> voxel_num;
   int slice_vox_num;
 
+#ifndef __EBBRT_BM__
+  for (int i = 0; i < (int)nids.size(); i++) 
+  {
+      auto buf = MakeUniqueIOBuf(1 * sizeof(int));
+      auto dp = buf->GetMutDataPointer();
+      dp.Get<int>() = 1;
+
+      FORPRINTF("GaussianReconstruction : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+      SendMessage(nids[i], std::move(buf));
+  }
+  _voxel_num.resize(_slices.size());
+#else
+  _voxel_num.resize(_end-_start);
+#endif
+  
   // clear _reconstructed image
   _reconstructed = 0;
 
   // CPU
-  for (inputIndex = 0; inputIndex < _slices.size(); ++inputIndex) {
+  for (inputIndex = _start; inputIndex < _end; ++inputIndex) {
     // copy the current slice
     slice = _slices[inputIndex];
     // alias the current bias image
@@ -2761,53 +2707,82 @@ void irtkReconstructionEbb::GaussianReconstruction() {
 
     // Distribute slice intensities to the volume
     for (i = 0; i < slice.GetX(); i++)
-      for (j = 0; j < slice.GetY(); j++)
-        if (slice(i, j, 0) != -1) {
-	    // biascorrect and scale the slice
-	    slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
+    {
+	for (j = 0; j < slice.GetY(); j++)
+	{
+	    if (slice(i, j, 0) != -1) 
+	    {
+		// biascorrect and scale the slice
+		slice(i, j, 0) *= exp(-b(i, j, 0)) * scale;
 	    
-	    // number of volume voxels with non-zero coefficients
-	    // for current slice voxel
-	    n = _volcoeffs[inputIndex][i][j].size();
+		// number of volume voxels with non-zero coefficients
+		// for current slice voxel
+		n = _volcoeffs[inputIndex][i][j].size();
 	    
-	    // if given voxel is not present in reconstructed volume at all,
-	    // pad it
+		// calculate num of vox in a slice that have overlap with roi
+		if (n > 0)
+		    slice_vox_num++;
 	    
-	    // if (n == 0)
-	    //_slices[inputIndex].PutAsDouble(i, j, 0, -1);
-	    // calculate num of vox in a slice that have overlap with roi
-	    if (n > 0)
-		slice_vox_num++;
-	    
-	    // add contribution of current slice voxel to all voxel volumes
-	    // to which it contributes
-	    for (k = 0; k < n; k++) {
-		p = _volcoeffs[inputIndex][i][j][k];
-		_reconstructed(p.x, p.y, p.z) += p.value * slice(i, j, 0);
+		// add contribution of current slice voxel to all voxel volumes
+		// to which it contributes
+		for (k = 0; k < n; k++) {
+		    p = _volcoeffs[inputIndex][i][j][k];
+		    _reconstructed(p.x, p.y, p.z) += p.value * slice(i, j, 0);
+		}
 	    }
-	    // debug
-	    // p = _volcoeffs[inputIndex][i][j][0];
-	    //_reconstructed(p.x, p.y, p.z) += slice(i, j, 0);
-        }
-    voxel_num.push_back(slice_vox_num);
-    // end of loop for a slice inputIndex
-  }
+	}
+    }
+    //voxel_num.push_back(slice_vox_num);
+    _voxel_num[inputIndex-_start] = slice_vox_num;
+  } // end of loop for a slice inputIndex
+  
 
-  // FORPRINTF("\n*********** GaussianReconstruction 1
-  // ***********\n_reconstructed = %lf, _volume_weights =
-  // %lf\n***************\n", SumRecon(), sumOneImage(_volume_weights));
-
-  //_reconstructed_temp += _reconstructed;
-
+  FORPRINTF("\n*********** GaussianReconstruction 1 ***********\n_reconstructed = %lf, _volume_weights = %lf\n***************\n", SumRecon(), sumOneImage(_volume_weights));
+  
   // normalize the volume by proportion of contributing slice voxels
   // for each volume voxe
   _reconstructed /= _volume_weights;
-  //_reconstructed_temp /= _volume_weights;
 
+  FORPRINTF("\n*********** GaussianReconstruction 2 ***********\n_reconstructed = %lf, _volume_weights = %lf\n***************\n", SumRecon(), sumOneImage(_volume_weights));
+
+#ifdef __EBBRT_BM__
+  // sending
+  auto retbuf = MakeUniqueIOBuf(3 * sizeof(int));
+  auto retdp = retbuf->GetMutDataPointer();
+  
+  retdp.Get<int>() = 1;
+  retdp.Get<int>() = _start;
+  retdp.Get<int>() = _end;
+
+  auto vnum = std::make_unique<StaticIOBuf>(
+      reinterpret_cast<const uint8_t *>(_voxel_num.data()),
+      (size_t)((_end-_start) * sizeof(int)));
+  
+  retbuf->PrependChain(std::move(vnum));
+  FORPRINTF("GaussianReconstruction : Sending %d bytes\n", (int)retbuf->ComputeChainDataLength());
+  //retbuf->PrependChain(std::move(SerializeReconstructed()));
+  SendMessage(nids[0], std::move(retbuf));
+#endif
+  
+#ifndef __EBBRT_BM__
+   auto tf = gaussianreconFuture.GetFuture();
+   tf.Block();
+   FORPRINTF("GaussianReconstruction: returned from future\n");
+   
+   for(int i = 0; i < _voxel_num.size(); i++)
+   {
+       FORPRINTF("%d %d\n", i, _voxel_num[i]);
+   }
+   
+   
+   mypromise.SetValue();
+   return;
+#endif
+   
   // now find slices with small overlap with ROI and exclude them.
   vector<int> voxel_num_tmp;
-  for (i = 0; i < voxel_num.size(); i++)
-    voxel_num_tmp.push_back(voxel_num[i]);
+  for (i = 0; i < _voxel_num.size(); i++)
+      voxel_num_tmp.push_back(_voxel_num[i]);
 
   // find median
   sort(voxel_num_tmp.begin(), voxel_num_tmp.end());
@@ -2815,14 +2790,11 @@ void irtkReconstructionEbb::GaussianReconstruction() {
 
   // remember slices with small overlap with ROI
   _small_slices.clear();
-  for (i = 0; i < voxel_num.size(); i++)
-    if (voxel_num[i] < 0.1 * median)
+  for (i = 0; i < _voxel_num.size(); i++)
+    if (_voxel_num[i] < 0.1 * median)
       _small_slices.push_back(i);
 
-  // FORPRINTF("Gaussian Recconstruction finished\n");
-  // FORPRINTF("\n*********** GaussianReconstruction 2
-  // ***********\n_reconstructed = %lf, _volume_weights =
-  // %lf\n***************\n", SumRecon(), sumOneImage(_volume_weights));
+  FORPRINTF("Gaussian Recconstruction finished\n");
 }
 
 void irtkReconstructionEbb::InitializeEM() {
@@ -5022,400 +4994,6 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
   //_reconstructed.Write("3TStackReconstruction.nii");
 }
 
-#pragma GCC diagnostic pop
-
-/*void irtkReconstructionEbb::SendRecon(int iterations) {
-  // get the event manager context and save it
-  ebbrt::EventManager::EventContext context;
-
-  size_t max_slices = _slices.size();
-
-  int start, end, factor;
-
-  // all sizes are the same
-  FORPRINTF("max_slices = %ld\n", _slices.size());
-
-  _max_intensity = voxel_limits<irtkRealPixel>::min();
-  _min_intensity = voxel_limits<irtkRealPixel>::max();
-  for (unsigned int i = 0; i < _slices.size(); i++) {
-      // to update minimum we need to exclude padding value
-      irtkRealPixel *ptr = _slices[i].GetPointerToVoxels();
-      for (int ind = 0; ind < _slices[i].GetNumberOfVoxels(); ind++) {
-          if (*ptr > 0) {
-              if (*ptr > _max_intensity)
-                  _max_intensity = *ptr;
-              if (*ptr < _min_intensity)
-                  _min_intensity = *ptr;
-          }
-          ptr++;
-      }
-  }
-
-  _addon.Initialize(_reconstructed.GetImageAttributes());
-  _addon = 0;
-
-  // Clear confidence map
-  _confidence_map.Initialize(_reconstructed.GetImageAttributes());
-  _confidence_map = 0;
-
-  _volume_weights.Initialize(_reconstructed.GetImageAttributes());
-  _volume_weights = 0;
-
-  //FORPRINTF("$$$$ send_recon_1 _max_intensity = %lf, _min_intensity = %lf,
-  _slices = %f\n\n", _max_intensity, _min_intensity, sumImage(_slices));
-
-  for (int i = 0; i < (int)nids.size(); i++) {
-    // serialization
-    std::ostringstream ofs;
-    boost::archive::text_oarchive oa(ofs);
-
-    //_slices
-    factor = (int)ceil(max_slices / (float)numNodes);
-    start = i * factor;
-    end = i * factor + factor;
-    end = ((size_t)end > max_slices) ? max_slices : end;
-
-    oa &start &end;
-
-    for (int j = start; j < end; j++) {
-        oa &_slices[j];
-    }
-
-    for (int j = start; j < end; j++) {
-      oa &_transformations[j];
-    }
-
-    for (int j = start; j < end; j++) {
-      oa &_simulated_slices[j];
-    }
-
-    for (int j = start; j < end; j++) {
-      oa &_simulated_weights[j];
-    }
-
-    for (int j = start; j < end; j++) {
-      oa &_simulated_inside[j];
-    }
-
-    for (int j = start; j < end; j++) {
-      oa &_stack_index[j];
-    }
-
-    size_t mslices = _stack_factor.size();
-    oa &mslices;
-    for (unsigned int j = 0; j < mslices; j++) {
-      oa &_stack_factor[j];
-    }
-
-    oa &_reconstructed &_mask &max_slices &_global_bias_correction &iterations
-        &_max_intensity &_min_intensity;// & _reconstructed_temp;
-
-    std::string ts = "E " + ofs.str();
-
-    FORPRINTF("%s %ld\n", nids[i].ToString().data(), ts.length());
-
-    Print(nids[i], ts.c_str());
-  }
-
-  emec = &context;
-  ebbrt::event_manager->SaveContext(*emec);
-  //FORPRINTF("Received back, hosted checksum _reconstructed = %lf\n",
-  SumRecon());
-
-  mypromise.SetValue();
-  }*/
-
-/*void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
-                                           std::unique_ptr<IOBuf> &&buffer) {
-
-    size_t _max_slices;
-    auto output = std::string(reinterpret_cast<const char *>(buffer->Data()),
-buffer->Length());
-
-#ifndef __EBBRT_BM__
-    if (output[0] == 'A')
-    {
-        ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-        char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-        membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-        std::istream stream{&sb};
-        boost::archive::text_iarchive ia(stream);
-
-        irtkRealImage tmpa, tmpb;
-        ia & tmpa & tmpb;
-        _volume_weights += tmpa;
-        _reconstructed += tmpb;
-        reconRecv ++;
-        if(reconRecv == numNodes)
-        {
-            reconRecv = 0;
-            std::ostringstream ofs;
-            boost::archive::text_oarchive oa(ofs);
-            oa & _volume_weights & _reconstructed;
-            std::string ts = "A " + ofs.str();
-
-            for (int i = 0; i < (int)nids.size(); i++) {
-                Print(nids[i], ts.c_str());
-            }
-            _volume_weights = 0;
-            _reconstructed = 0;
-            //_reconstructed_temp = 0;
-        }
-
-    }
-    else if (output[0] == 'B')
-    {
-        PRINTF("in B\n");
-
-        ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-        char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-        membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-        std::istream stream{&sb};
-        boost::archive::text_iarchive ia(stream);
-
-        irtkRealImage tmpa, tmpb;
-        ia & tmpa & tmpb;
-        _addon += tmpa;
-        _confidence_map += tmpb;
-
-        reconRecv ++;
-
-        if(reconRecv == numNodes)
-        {
-            reconRecv = 0;
-            std::ostringstream ofs;
-            boost::archive::text_oarchive oa(ofs);
-            oa & _addon & _confidence_map;
-            std::string ts = "B " + ofs.str();
-
-            for (int i = 0; i < (int)nids.size(); i++) {
-                Print(nids[i], ts.c_str());
-            }
-
-            _addon = 0;
-            _confidence_map = 0;
-        }
-
-    }
-    else if (output[0] == 'C') {
-        PRINTF("in C\n");
-
-        ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-        char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-        membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-        std::istream stream{&sb};
-        boost::archive::text_iarchive ia(stream);
-
-        double ttmin, ttmax, ttsigma, ttmix, ttnum;
-
-        ia & ttmin & ttmax & ttsigma & ttmix & ttnum;
-        if(ttmin < tmin) tmin = ttmin;
-        if(ttmax > tmax) tmax = ttmax;
-        tsigma += ttsigma;
-        tmix += ttmix;
-        tnum += ttnum;
-
-        reconRecv ++;
-        if(reconRecv == numNodes)
-        {
-            reconRecv = 0;
-
-            std::ostringstream ofs;
-            boost::archive::text_oarchive oa(ofs);
-            oa & tmin & tmax & tsigma & tmix & tnum;
-            std::string ts = "C " + ofs.str();
-
-            for (int i = 0; i < (int)nids.size(); i++) {
-                Print(nids[i], ts.c_str());
-            }
-
-            tsigma = 0;
-            tmix = 0;
-            tnum = 0;
-            tmin = voxel_limits<irtkRealPixel>::max();
-            tmax = voxel_limits<irtkRealPixel>::min();
-
-        }
-    }
-    else if (output[0] == 'E') {
-
-        ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-        char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-        membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-        std::istream stream{&sb};
-        boost::archive::text_iarchive ia(stream);
-
-        irtkRealImage temp;
-        ia &temp;
-        //_reconstructed += temp;
-        reconRecv++;
-
-        if (reconRecv == numNodes) {
-            ebbrt::event_manager->ActivateContext(std::move(*emec));
-        }
-    }
-    else
-    {
-        ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-        char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-        FORPRINTF("%s\n", t);
-    }
-#else
-
-    //auto output = std::string(reinterpret_cast<const char *>(buffer->Data()),
-    //                          buffer->Length());
-    if (output[0] == 'A') {
-        ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-        char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-        membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-        std::istream stream{&sb};
-        boost::archive::text_iarchive ia(stream);
-
-        ia & _volume_weights & _reconstructed;
-        ebbrt::event_manager->ActivateContext(std::move(*emec2));
-    }
-    else if (output[0] == 'B') {
-
-        ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-        char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-        membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-        std::istream stream{&sb};
-        boost::archive::text_iarchive ia(stream);
-
-        ia & _addon & _confidence_map;
-        ebbrt::event_manager->ActivateContext(std::move(*emec2));
-    }
-    else if (output[0] == 'C') {
-
-        ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-        char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-        membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-        std::istream stream{&sb};
-        boost::archive::text_iarchive ia(stream);
-
-        ia & tmin & tmax & tsigma & tmix & tnum;
-        ebbrt::event_manager->ActivateContext(std::move(*emec2));
-    }
-    else if (output[0] == 'E') {
-        nids.clear();
-        nids.push_back(nid);
-
-        ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-        char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-        membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-        std::istream stream{&sb};
-        boost::archive::text_iarchive ia(stream);
-
-        int iterations = 1; // 9 //2 for Shepp-Logan is enough
-        int slicess;
-        ia &_start &_end;
-        _diff = _end - _start;
-
-        _slices.resize(_diff);
-        _transformations.resize(_diff);
-        _simulated_slices.resize(_diff);
-        _simulated_weights.resize(_diff);
-        _simulated_inside.resize(_diff);
-        _stack_index.resize(_diff);
-
-        for (int k = 0; k < _diff; k++) {
-            ia &_slices[k];
-        }
-
-        for (int k = 0; k < _diff; k++) {
-            ia &_transformations[k];
-        }
-
-        for (int k = 0; k < _diff; k++) {
-            ia &_simulated_slices[k];
-        }
-
-        for (int k = 0; k < _diff; k++) {
-            ia &_simulated_weights[k];
-        }
-
-        for (int k = 0; k < _diff; k++) {
-            ia &_simulated_inside[k];
-        }
-
-        for (int k = 0; k < _diff; k++) {
-            ia &_stack_index[k];
-        }
-
-        int ssend;
-        ia &ssend;
-        _stack_factor.resize(ssend);
-        for (int k = 0; k < ssend; k++) {
-            ia &_stack_factor[k];
-        }
-
-        ia &_reconstructed &_mask &_max_slices &_global_bias_correction
-&iterations &_max_intensity &_min_intensity; // & _reconstructed_temp;
-
-        double sigma = 12;
-        double lambda = 0.02;
-        double delta = 150;
-        int levels = 3;
-        double lastIterLambda = 0.01;
-        int rec_iterations;
-        bool global_bias_correction = false;
-        _global_bias_correction = false;
-        // flag to swich the intensity matching on and off
-        bool intensity_matching = true;
-        bool useCPU = true;
-        bool disableBiasCorr = true;
-
-        int rec_iterations_first = 4;
-        int rec_iterations_last = 13;
-
-        _step = 0.0001;
-        _quality_factor = 2;
-        _sigma_bias = 12;
-        _sigma_s_cpu = 0.025;
-        _sigma_s2_cpu = 0.025;
-        _mix_s_cpu = 0.9;
-        _mix_cpu = 0.9;
-        _delta = 1;
-        _lambda = 0.1;
-        _alpha = (0.05 / _lambda) * _delta * _delta;
-        _low_intensity_cutoff = 0.01;
-        _adaptive = false;
-
-        int directions[13][3] = {{1, 0, -1}, {0, 1, -1}, {1, 1, -1}, {1, -1,
--1},
-                                 {1, 0, 0},  {0, 1, 0},  {1, 1, 0},  {1, -1, 0},
-                                 {1, 0, 1},  {0, 1, 1},  {1, 1, 1},  {1, -1, 1},
-                                 {0, 0, 1}};
-        for (int i = 0; i < 13; i++)
-            for (int j = 0; j < 3; j++)
-                _directions[i][j] = directions[i][j];
-
-        InitializeEM();
-
-        double delta = 150;
-        double lastIterLambda = 0.01;
-        int rec_iterations_first = 4;
-        int rec_iterations_last = 13;
-        bool intensity_matching = true;
-        double lambda = 0.02;
-        int levels = 3;
-
-        RunRecon(iterations, delta, lastIterLambda, rec_iterations_first,
-                 rec_iterations_last, intensity_matching, lambda, levels);
-
-        FORPRINTF("runrecon ende\n");
-
-        std::ostringstream ofs;
-        boost::archive::text_oarchive oa(ofs);
-        oa &_reconstructed;
-
-        std::string ts = "E " + ofs.str();
-
-        Print(nids[0], ts.c_str());
-    }
-#endif
-}*/
-
 void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
                                            std::unique_ptr<IOBuf> &&buffer) {
   FORPRINTF("Received %d bytes\n", (int)buffer->ComputeChainDataLength());
@@ -5424,256 +5002,48 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
 
 // backend
 #ifdef __EBBRT_BM__
-  if (ret == 0) {
-    auto nslices = dp.Get<int>();
-    auto nrigidtrans = dp.Get<int>();
-    _slices.resize(nslices);
-    _transformations.resize(nrigidtrans);
-    //_reconstructed = NULL;
-    
-    FORPRINTF("EBBRT BM received %d, nslices = %d, nrigidtrans = %d\n", ret, nslices, nrigidtrans);
-
-    for(int i = 0; i < nslices+2; i++)
-    {
-        auto x = dp.Get<int>();
-        auto y = dp.Get<int>();
-        auto z = dp.Get<int>();
-        auto t = dp.Get<int>();
-
-        auto dx = dp.Get<double>();
-        auto dy = dp.Get<double>();
-        auto dz = dp.Get<double>();
-        auto dt = dp.Get<double>();
-
-        auto xorg = dp.Get<double>();
-        auto yorg = dp.Get<double>();
-        auto zorg = dp.Get<double>();
-        auto torg = dp.Get<double>();
-
-        auto xa0 = dp.Get<double>();
-        auto xa1 = dp.Get<double>();
-        auto xa2 = dp.Get<double>();
-
-        auto ya0 = dp.Get<double>();
-        auto ya1 = dp.Get<double>();
-        auto ya2 = dp.Get<double>();
-
-        auto za0 = dp.Get<double>();
-        auto za1 = dp.Get<double>();
-        auto za2 = dp.Get<double>();
-
-	//FORPRINTF("%d %d %d %d %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf\n",
-        irtkImageAttributes at(
-	    x, y, z, t,
-            dx, dy, dz, dt,
-            xorg, yorg, zorg, torg,
-            xa0, xa1, xa2, ya0,
-            ya1, ya2, za0, za1,
-            za2
-            );
-
-	auto rows = dp.Get<int>();
-	auto cols = dp.Get<int>();
-	//auto ptr = new double[rows * cols];
-	auto ptr = std::make_unique<double[]>(rows * cols);
-	dp.Get(rows * cols * sizeof(double), ptr.get());
-	irtkMatrix matI2W(rows, cols, std::move(ptr));
-	
-	rows = dp.Get<int>();
-	cols = dp.Get<int>();
-	//ptr = new double[rows * cols];
-        ptr = std::make_unique<double[]>(rows * cols);
-	dp.Get(rows * cols * sizeof(double), ptr.get());
-	irtkMatrix matW2I(rows, cols, std::move(ptr));
-	
-	auto n = dp.Get<int>();
-        auto ptr2 = new double[n];
-	dp.Get(n*sizeof(double), ptr2);
-	
-	irtkRealImage ri(at, ptr2, matI2W, matW2I);
-        //FORPRINTF("EBBRT BM slice:%d sum = %lf\n", i, ri.AttrSum());
-	//FORPRINTF("n = %d, attr sum = %lf, sum = %lf, W2ISum = %lf, I2WSum = %lf\n", n, ri.AttrSum(), ri.Sum(), ri.W2ISum(), ri.I2WSum());	
-	if(i == (nslices))  { _reconstructed = std::move(ri); }
-	else if(i == (nslices+1))  { _mask = std::move(ri); }
-	else { _slices[i] = std::move(ri); }
-    }
-    
-    for(int i = 0; i < nrigidtrans; i++)
-    {
-	auto tx = dp.Get<double>();
-	auto ty = dp.Get<double>();
-	auto tz = dp.Get<double>();
-
-	auto rx = dp.Get<double>();
-	auto ry = dp.Get<double>();
-	auto rz = dp.Get<double>();
-
-	auto cosrx = dp.Get<double>();
-	auto cosry = dp.Get<double>();
-	auto cosrz = dp.Get<double>();
-
-	auto sinx = dp.Get<double>();
-	auto siny = dp.Get<double>();
-	auto sinz = dp.Get<double>();
-	
-	auto status0 = dp.Get<int>();
-	auto status1 = dp.Get<int>();
-	auto status2 = dp.Get<int>();
-	auto status3 = dp.Get<int>();
-	auto status4 = dp.Get<int>();
-	auto status5 = dp.Get<int>();
-
-	auto rows = dp.Get<int>();
-	auto cols = dp.Get<int>();
-	auto ptr = std::make_unique<double[]>(rows * cols);
-	dp.Get(rows * cols * sizeof(double), ptr.get());
-	irtkMatrix mat(rows, cols, std::move(ptr));
-	
-	//FORPRINTF("%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %d %d %d %d %d %d %d %d %lf\n", tx, ty, tz, rx, ry, rz, cosrx, cosry, cosrz, sinx, siny, sinz, status0, status1, status2, status3, status4, status5, rows, cols, mat.Sum());
-	irtkRigidTransformation irt(tx, ty, tz, rx, ry, rz, cosrx, cosry, cosrz, sinx, siny, sinz, status0, status1, status2, status3, status4, status5, mat);
-
-	_transformations[i] = std::move(irt);
-	//FORPRINTF("%lf %lf\n", _transformations[i].Sum(), _transformations[i]._matrix.Sum());
-    }
-
-    // flag to swich the intensity matching on and off
-    bool useCPU = true;
-    bool disableBiasCorr = true;
-    int rec_iterations_first = 4;
-    int rec_iterations_last = 13;
-    double delta = 150;
-    double lastIterLambda = 0.01;
-    bool intensity_matching = true;
-    double lambda = 0.02;
-    int levels = 3;
-    int rec_iterations = 1;
-
-    _global_bias_correction = false;
-    _step = 0.0001;
-    _quality_factor = 2;
-    _sigma_bias = 12;
-    _sigma_s_cpu = 0.025;
-    _sigma_s2_cpu = 0.025;
-    _mix_s_cpu = 0.9;
-    _mix_cpu = 0.9;
-    _delta = 1;
-    _lambda = 0.1;
-    _alpha = (0.05 / _lambda) * _delta * _delta;
-    _low_intensity_cutoff = 0.01;
-    _adaptive = false;
-
-    int directions[13][3] = {{1, 0, -1}, {0, 1, -1}, {1, 1, -1}, {1, -1,
-								  -1},
-			     {1, 0, 0},  {0, 1, 0},  {1, 1, 0},  {1, -1, 0},
-			     {1, 0, 1},  {0, 1, 1},  {1, 1, 1},  {1, -1, 1},
-			     {0, 0, 1}};
-    for (int i = 0; i < 13; i++)
-	for (int j = 0; j < 3; j++)
-	    _directions[i][j] = directions[i][j];
-
-    InitializeEM();
-    InitializeEMValues();
-    _volcoeffs.clear();
-    _volcoeffs.resize(_slices.size());
-    
-    _slice_inside_cpu.clear();
-    _slice_inside_cpu.resize(_slices.size());
-    runCoeffInit(this, 0, _slices.size());
-
-    //CoeffInit();
-    
-    // sending
-    auto retbuf = MakeUniqueIOBuf(1 * sizeof(int));
-    auto retdp = retbuf->GetMutDataPointer();
-    retdp.Get<int>() = ret;
-    SendMessage(nid, std::move(retbuf));
-  } 
-  else if(ret == 1)
-  {
-      for(int i = 0; i < 248; i++)
-      {
-	  FORPRINTF("attr sum = %lf, sum = %lf, W2ISum = %lf, I2WSum = %lf\n", _slices[i].AttrSum(), _slices[i].Sum(), _slices[i].W2ISum(), _slices[i].I2WSum());	
-      }
-      FORPRINTF("attr sum = %lf, sum = %lf, W2ISum = %lf, I2WSum = %lf\n", _reconstructed.AttrSum(), _reconstructed.Sum(), _reconstructed.W2ISum(), _reconstructed.I2WSum());	
-
-      // sending
-      auto retbuf = MakeUniqueIOBuf(1 * sizeof(int));
-      auto retdp = retbuf->GetMutDataPointer();
-      retdp.Get<int>() = ret;
-      SendMessage(nid, std::move(retbuf));
-  }
-  else {
-      FORPRINTF("EbbRT BM: ERROR unknown command\n");
-  }
-#else
-  if (ret == 0) {
-    reconRecv++;
-    if (reconRecv == numNodes) {
-      reconRecv = 0;
-      ebbrt::event_manager->ActivateContext(std::move(*emec));
-    }
-  }
-  else if (ret == 1)
-  {
-      reconRecv++;
-      if (reconRecv == numNodes) {
-	  reconRecv = 0;
-	  ebbrt::event_manager->ActivateContext(std::move(*emec));
-      }
-  }
-  else {
-    FORPRINTF("EbbRT HOSTED: ERROR unknown command\n");
-  }
-
-#endif
-
-  /*auto output = std::string(reinterpret_cast<const char *>(buffer->Data()),
-buffer->Length());
-
-#ifdef __EBBRT_BM__
-  if(output[0] == 'A')
+  if (ret == 0) 
   {
       nids.clear();
       nids.push_back(nid);
+      
+      _start = dp.Get<int>();
+      _end = dp.Get<int>();
+      
+      auto nslices = dp.Get<int>();
+      _slices.resize(nslices);
+    
+      FORPRINTF("EBBRT BM received %d, nslices = %d\n", ret, nslices);
 
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-      std::istream stream{&sb};
-      boost::archive::text_iarchive ia(stream);
+      for(int i = 0; i < nslices; i++)
+      {
+	  DeserializeSlice(dp, _slices[i]);
+      }
+    
+      DeserializeSlice(dp, _reconstructed);
+      DeserializeSlice(dp, _mask);
+    
+      auto nrigidtrans = dp.Get<int>();	
+      _transformations.resize(nrigidtrans);
 
-      int iterations;
+      for(int i = 0; i < nrigidtrans; i++)
+      {
+	  DeserializeTransformations(dp, _transformations[i]);
+      }
 
-      ia & _start & _end & _slices_size & _stack_factor_size &
-_global_bias_correction & iterations & _max_intensity & _min_intensity;
+      // flag to swich the intensity matching on and off
+      /*bool useCPU = true;
+      bool disableBiasCorr = true;
+      int rec_iterations_first = 4;
+      int rec_iterations_last = 13;
+      double delta = 150;
+      double lastIterLambda = 0.01;
+      bool intensity_matching = true;
+      double lambda = 0.02;
+      int levels = 3;
+      int rec_iterations = 1;*/
 
-      _diff = _end - _start;
-      _slices.resize(_diff);
-      _transformations.resize(_diff);
-      _simulated_slices.resize(_diff);
-      _simulated_weights.resize(_diff);
-      _simulated_inside.resize(_diff);
-      _stack_index.resize(_diff);
-      _stack_factor.resize(_stack_factor_size);
-
-      _bias.clear();
-      _weights.clear();
-      _scale_cpu.clear();
-      _slice_weight_cpu.clear();
-
-      _volcoeffs.clear();
-      _volcoeffs.resize(_diff);
-
-      _slice_inside_cpu.clear();
-      _slice_inside_cpu.resize(_diff);
-      slice_potential.clear();
-
-      slice_potential.resize(_diff);
-      _bias.resize(_diff);
-      _weights.resize(_diff);
-      _scale_cpu.resize(_diff);
-      _slice_weight_cpu.resize(_diff);
-
+      _global_bias_correction = false;
       _step = 0.0001;
       _quality_factor = 2;
       _sigma_bias = 12;
@@ -5687,230 +5057,86 @@ _global_bias_correction & iterations & _max_intensity & _min_intensity;
       _low_intensity_cutoff = 0.01;
       _adaptive = false;
 
-      int directions[13][3] = {{1, 0, -1}, {0, 1, -1}, {1, 1, -1}, {1, -1, -1},
-                               {1, 0, 0},  {0, 1, 0},  {1, 1, 0},  {1, -1, 0},
-                               {1, 0, 1},  {0, 1, 1},  {1, 1, 1},  {1, -1, 1},
-                               {0, 0, 1}};
+      int directions[13][3] = {{1, 0, -1}, {0, 1, -1}, {1, 1, -1}, {1, -1,
+								    -1},
+			       {1, 0, 0},  {0, 1, 0},  {1, 1, 0},  {1, -1, 0},
+			       {1, 0, 1},  {0, 1, 1},  {1, 1, 1},  {1, -1, 1},
+			       {0, 0, 1}};
       for (int i = 0; i < 13; i++)
-          for (int j = 0; j < 3; j++)
-              _directions[i][j] = directions[i][j];
+	  for (int j = 0; j < 3; j++)
+	      _directions[i][j] = directions[i][j];
 
-      FORPRINTF("\nstart = %d, end = %d, slices = %d\n", _start, _end,
-_slices_size);
-
-      std::string ts = "A ";
-
-      Print(nids[0], ts.c_str());
-  }
-  else if (output[0] == 'B')
+      InitializeEM();
+      InitializeEMValues();
+      CoeffInit();      
+      // sending
+      auto retbuf = MakeUniqueIOBuf(1 * sizeof(int));
+      auto retdp = retbuf->GetMutDataPointer();
+      retdp.Get<int>() = ret;
+      SendMessage(nids[0], std::move(retbuf));
+  } 
+  else if(ret == 1)
   {
-      Print(nids[0], "Got B");
-
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-      std::istream stream{&sb};
-      boost::archive::text_iarchive ia(stream);
-
-      for (int k = 0; k < _diff; k++) {
-          ia& _slices[k];
-      }
-
-      for (int k = 0; k < _diff; k++) {
-          ia& _transformations[k];
-      }
-
-      for (int k = 0; k < _diff; k++) {
-          ia& _volcoeffs[k];
-      }
-
-      ia& _slice_inside_cpu & _reconstructed& _quality_factor& _mask;
-
-      Print(nids[0], "Running CoeffInit");
-
-      this->CoeffInit();
+     GaussianReconstruction();
   }
-  else if (output[0] == 'C')
+  else if(ret == 99)
   {
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-      std::istream stream{&sb};
-      boost::archive::text_iarchive ia(stream);
-
-      for (int j = 0; j < _diff; j++) {
-          ia & _simulated_slices[j];
+      for(int i = 0; i < 248; i++)
+      {
+	  FORPRINTF("attr sum = %lf, sum = %lf, W2ISum = %lf, I2WSum = %lf\n", _slices[i].AttrSum(), _slices[i].Sum(), _slices[i].W2ISum(), _slices[i].I2WSum());	
       }
+      FORPRINTF("attr sum = %lf, sum = %lf, W2ISum = %lf, I2WSum = %lf\n", _reconstructed.AttrSum(), _reconstructed.Sum(), _reconstructed.W2ISum(), _reconstructed.I2WSum());	
 
-      for (int j = 0; j < _diff; j++) {
-          ia & _simulated_weights[j];
-      }
-
-      for (int j = 0; j < _diff; j++) {
-          ia & _simulated_inside[j];
-      }
-      ia & _slice_inside_cpu & _reconstructed & _mask;
-
-      Print(nids[0], "Running SimulateSlices");
-      this->SimulateSlices();
+      // sending
+      auto retbuf = MakeUniqueIOBuf(1 * sizeof(int));
+      auto retdp = retbuf->GetMutDataPointer();
+      retdp.Get<int>() = ret;
+      SendMessage(nid, std::move(retbuf));
   }
-  else if (output[0] == 'D')
+  else 
   {
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-      std::istream stream{&sb};
-      boost::archive::text_iarchive ia(stream);
-
-      for (int j = 0; j < _diff; j++) {
-          ia & _bias[j];
-      }
-
-      for (int j = 0; j < _diff; j++) {
-          ia & _volcoeffs[j];
-      }
-
-      for (int j = 0; j < _diff; j++) {
-          ia & _simulated_weights[j];
-      }
-
-      for (int j = 0; j < _diff; j++) {
-          ia & _simulated_slices[j];
-      }
-
-      for (int j = 0; j < _diff; j++) {
-          ia & _weights[j];
-      }
-
-      ia & _scale_cpu & _sigma_cpu & _m_cpu & _mix_cpu;
-      Print(nids[0], "Running EStep");
-      this->EStep();
+      FORPRINTF("EbbRT BM: ERROR unknown command\n");
   }
 #else
-
-  if(output[0] == 'A')
+  if (ret == 0) 
   {
-      FORPRINTF("HOSTED recv A\n");
-      reconRecv ++;
-      if(reconRecv == numNodes)
+      reconRecv++;
+      if (reconRecv == numNodes) 
       {
-          reconRecv = 0;
-          ebbrt::event_manager->ActivateContext(std::move(*emec));
+	  reconRecv = 0;
+	  testFuture.SetValue(1);
       }
   }
-  else if(output[0] == 'B')
+  else if(ret == 1)
   {
-      FORPRINTF("HOSTED recv B\n");
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-      std::istream stream{&sb};
-      boost::archive::text_iarchive ia(stream);
-
-      int start, end;
-      ia& start& end;
-
-      for (int k = start; k < end; k++) {
-          ia& _slices[k];
+      int start = dp.Get<int>();
+      int end = dp.Get<int>();
+      FORPRINTF("start = %d, end = %d\n", start, end);
+      
+      if(gaussreconptr == NULL) {
+	  gaussreconptr = (int*) malloc((end-start)*sizeof(int));
       }
-      for (int k = start; k < end; k++) {
-          ia& _transformations[k];
-      }
-      for (int k = start; k < end; k++) {
-          ia& _volcoeffs[k];
-      }
-      std::vector<bool> _slice_inside_cpu_sub;
-
-      ia& _slice_inside_cpu_sub;
-
-      int c = 0;
-      for (int k = start; k < end; k++) {
-          _slice_inside_cpu[k] = _slice_inside_cpu_sub[c];
-          c++;
-      }
-
-      reconRecv ++;
-      if(reconRecv == numNodes)
+      
+      dp.Get((end-start)*sizeof(int), gaussreconptr);
+      memcpy(_voxel_num.data()+start, gaussreconptr, (end-start)*sizeof(int));
+      /*for(int i = 0; i < (end-start); i++)
       {
-          reconRecv = 0;
-          ebbrt::event_manager->ActivateContext(std::move(*emec2));
-      }
-  }
-  else if (output[0] == 'C')
-  {
-      FORPRINTF("HOSTED recv C\n");
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-      std::istream stream{&sb};
-      boost::archive::text_iarchive ia(stream);
-
-      int start, end;
-      ia& start& end;
-
-      for (int j = start; j < end; j++) {
-          ia& _simulated_slices[j];
-      }
-
-      for (int j = start; j < end; j++) {
-          ia& _simulated_weights[j];
-      }
-
-      for (int j = start; j < end; j++) {
-          ia& _simulated_inside[j];
-      }
-
-      std::vector<bool> _slice_inside_cpu_sub;
-      ia& _slice_inside_cpu_sub;
-      int c = 0;
-      for (int k = start; k < end; k++) {
-          _slice_inside_cpu[k] = _slice_inside_cpu_sub[c];
-          c++;
-      }
-
-      reconRecv ++;
-      if(reconRecv == numNodes)
+	  FORPRINTF("%d %d\n", i, gaussreconptr[i]);
+      }*/
+      
+      reconRecv++;
+      if (reconRecv == numNodes) 
       {
-          reconRecv = 0;
-          ebbrt::event_manager->ActivateContext(std::move(*emec2));
+	  reconRecv = 0;
+	  gaussianreconFuture.SetValue(1);
       }
   }
-  else if (output[0] == 'D')
+  else 
   {
-      FORPRINTF("HOSTED recv D\n");
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      membuf sb{t + 2, t + buffer->ComputeChainDataLength()};
-      std::istream stream{&sb};
-      boost::archive::text_iarchive ia(stream);
-
-      int start, end;
-      ia& start& end;
-
-      for (int j = start; j < end; j++) {
-          ia& _weights[j];
-      }
-
-      std::vector<double> slice_potential_sub;
-      ia& slice_potential_sub;
-      int c = 0;
-      for (int k = start; k < end; k++) {
-          slice_potential[k] = slice_potential_sub[c];
-          c++;
-      }
-
-      reconRecv ++;
-      if(reconRecv == numNodes)
-      {
-          reconRecv = 0;
-          ebbrt::event_manager->ActivateContext(std::move(*emec2));
-      }
+    FORPRINTF("EbbRT HOSTED: ERROR unknown command\n");
   }
-  else
-  {
-      ebbrt::IOBuf::DataPointer dp = buffer->GetDataPointer();
-      char *t = (char *)(dp.Get(buffer->ComputeChainDataLength()));
-      FORPRINTF("%s\n", t);
-  }
-  #endif*/
+
+#endif
 }
+
+#pragma GCC diagnostic pop
