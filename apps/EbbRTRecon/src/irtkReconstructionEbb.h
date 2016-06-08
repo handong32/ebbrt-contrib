@@ -112,6 +112,7 @@ public:
 
   //pointers for messsage
   int* gaussreconptr = NULL;
+  double* gaussreconptr2 = NULL;
 
   /// Flag to say whether we have a mask
   bool _have_mask;

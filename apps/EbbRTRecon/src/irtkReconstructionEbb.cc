@@ -1429,55 +1429,6 @@ void irtkReconstructionEbb::SimulateSlices() {
 #ifndef __EBBRT_BM__
   ParallelSimulateSlices parallelSimulateSlices(this, _numThreads);
   parallelSimulateSlices();
-/*FORPRINTF("Hosted SimulateSlices\n");
-
-ebbrt::EventManager::EventContext context2;
-irtkReconstructionEbb *r = this;
-
-ebbrt::event_manager->Spawn(
-    [&r]() {
-        int start, end, factor;
-
-        for(int i = 0; i < (int)r->nids.size(); i++)
-        {
-            std::ostringstream ofs;
-            boost::archive::text_oarchive oa(ofs);
-
-            factor = (int)ceil(r->_slices_size / (float)r->numNodes);
-            start = i * factor;
-            end = i * factor + factor;
-            end = (end > r->_slices_size) ? r->_slices_size : end;
-
-            for (int j = start; j < end; j++) {
-                oa & r->_simulated_slices[j];
-            }
-
-            for (int j = start; j < end; j++) {
-                oa & r->_simulated_weights[j];
-            }
-
-            for (int j = start; j < end; j++) {
-                oa & r->_simulated_inside[j];
-            }
-
-            std::vector<bool> _slice_inside_cpu_sub;
-            for (int j = start; j < end; j++) {
-                _slice_inside_cpu_sub.push_back(r->_slice_inside_cpu[j]);
-            }
-            oa& _slice_inside_cpu_sub;
-
-            oa & r->_reconstructed & r->_mask;
-
-            std::string ts = "C " + ofs.str();
-
-            FORPRINTF("HOSTED start=%d, end=%d\n", start, end);
-            r->Print(r->nids[i], ts.c_str());
-        }
-});
-
-emec2 = &context2;
-ebbrt::event_manager->SaveContext(*emec2);
-*/
 #else
   size_t ncpus = ebbrt::Cpu::Count();
   if (ncpus > 1) {
@@ -1513,28 +1464,6 @@ ebbrt::event_manager->SaveContext(*emec2);
   } else {
     runSimulateSlices(this, 0, _slices.size());
   }
-
-  std::ostringstream ofs;
-  boost::archive::text_oarchive oa(ofs);
-  oa &_start &_end;
-
-  for (int j = 0; j < _diff; j++) {
-    oa &_simulated_slices[j];
-  }
-
-  for (int j = 0; j < _diff; j++) {
-    oa &_simulated_weights[j];
-  }
-
-  for (int j = 0; j < _diff; j++) {
-    oa &_simulated_inside[j];
-  }
-
-  oa &_slice_inside_cpu;
-
-  std::string ts = "C " + ofs.str();
-
-  Print(nids[0], ts.c_str());
 #endif
 
   /*FORPRINTF("\n****** SimulateSlices*****\n");
@@ -2673,7 +2602,6 @@ void irtkReconstructionEbb::GaussianReconstruction() {
   irtkRealImage slice;
   double scale;
   POINT3D p;
-  //vector<int> voxel_num;
   int slice_vox_num;
 
 #ifndef __EBBRT_BM__
@@ -2732,18 +2660,17 @@ void irtkReconstructionEbb::GaussianReconstruction() {
 	    }
 	}
     }
-    //voxel_num.push_back(slice_vox_num);
     _voxel_num[inputIndex-_start] = slice_vox_num;
   } // end of loop for a slice inputIndex
   
 
-  FORPRINTF("\n*********** GaussianReconstruction 1 ***********\n_reconstructed = %lf, _volume_weights = %lf\n***************\n", SumRecon(), sumOneImage(_volume_weights));
+  //FORPRINTF("\n*********** GaussianReconstruction 1 ***********\n_reconstructed = %lf, _volume_weights = %lf\n***************\n", SumRecon(), sumOneImage(_volume_weights));
   
   // normalize the volume by proportion of contributing slice voxels
   // for each volume voxe
   _reconstructed /= _volume_weights;
 
-  FORPRINTF("\n*********** GaussianReconstruction 2 ***********\n_reconstructed = %lf, _volume_weights = %lf\n***************\n", SumRecon(), sumOneImage(_volume_weights));
+  //FORPRINTF("\n*********** GaussianReconstruction 2 ***********\n_reconstructed = %lf, _volume_weights = %lf\n***************\n", SumRecon(), sumOneImage(_volume_weights));
 
 #ifdef __EBBRT_BM__
   // sending
@@ -2759,31 +2686,26 @@ void irtkReconstructionEbb::GaussianReconstruction() {
       (size_t)((_end-_start) * sizeof(int)));
   
   retbuf->PrependChain(std::move(vnum));
+  retbuf->PrependChain(std::move(serializeSlices(_reconstructed)));
+  
   FORPRINTF("GaussianReconstruction : Sending %d bytes\n", (int)retbuf->ComputeChainDataLength());
-  //retbuf->PrependChain(std::move(SerializeReconstructed()));
   SendMessage(nids[0], std::move(retbuf));
 #endif
   
+//block here before continuing
 #ifndef __EBBRT_BM__
    auto tf = gaussianreconFuture.GetFuture();
    tf.Block();
-   FORPRINTF("GaussianReconstruction: returned from future\n");
-   
-   for(int i = 0; i < _voxel_num.size(); i++)
-   {
-       FORPRINTF("%d %d\n", i, _voxel_num[i]);
-   }
-   
-   
-   mypromise.SetValue();
-   return;
+   FORPRINTF("GaussianReconstruction: returned from future\n");   
 #endif
    
   // now find slices with small overlap with ROI and exclude them.
   vector<int> voxel_num_tmp;
   for (i = 0; i < _voxel_num.size(); i++)
+  {
       voxel_num_tmp.push_back(_voxel_num[i]);
-
+  }
+  
   // find median
   sort(voxel_num_tmp.begin(), voxel_num_tmp.end());
   int median = voxel_num_tmp[round(voxel_num_tmp.size() * 0.5)];
@@ -2791,10 +2713,10 @@ void irtkReconstructionEbb::GaussianReconstruction() {
   // remember slices with small overlap with ROI
   _small_slices.clear();
   for (i = 0; i < _voxel_num.size(); i++)
-    if (_voxel_num[i] < 0.1 * median)
-      _small_slices.push_back(i);
-
-  FORPRINTF("Gaussian Recconstruction finished\n");
+  {
+      if (_voxel_num[i] < 0.1 * median) { _small_slices.push_back(i); }
+  }
+  //FORPRINTF("Gaussian Recconstruction finished\n");
 }
 
 void irtkReconstructionEbb::InitializeEM() {
@@ -2933,6 +2855,8 @@ void irtkReconstructionEbb::InitializeRobustStatistics() {
   _m_cpu, sumImage(_simulated_slices), sumImage(_slices), num,
   sumImage(_simulated_inside), sumImage(_simulated_weights), sigma);
   FORPRINTF("\n**********************\n");*/
+
+  FORPRINTF("\nInitializeRobustStatistics: \n\t_sigma_cpu=%lf\n\tsigma_s_cpu=%lf\n\t_mix_cpu=%lf\n\t_mix_s_cpu=%lf\n\t_m_cpu=%lf\n",  _sigma_cpu, _sigma_s_cpu, _mix_cpu, _mix_s_cpu, _m_cpu);
 }
 
 void runEStep(irtkReconstructionEbb *reconstructor, int start, int end) {
@@ -5114,15 +5038,24 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       FORPRINTF("start = %d, end = %d\n", start, end);
       
       if(gaussreconptr == NULL) {
-	  gaussreconptr = (int*) malloc((end-start)*sizeof(int));
+	  // malloc using _end and _start since can't guarantee end-start is the largest
+	  // buffer possible
+	  gaussreconptr = (int*) malloc((_end-_start)*sizeof(int));
       }
       
       dp.Get((end-start)*sizeof(int), gaussreconptr);
       memcpy(_voxel_num.data()+start, gaussreconptr, (end-start)*sizeof(int));
-      /*for(int i = 0; i < (end-start); i++)
+
+      int reconSize = dp.Get<int>();
+      FORPRINTF("%d %d ", reconSize, _reconstructed.GetSizeMat());
+      if(gaussreconptr2 == NULL)
       {
-	  FORPRINTF("%d %d\n", i, gaussreconptr[i]);
-      }*/
+	  gaussreconptr2 = (double*) malloc (_reconstructed.GetSizeMat()*sizeof(double));
+      }
+      
+      dp.Get(reconSize*sizeof(double), gaussreconptr2);
+      
+      _reconstructed.SumVec(gaussreconptr2);
       
       reconRecv++;
       if (reconRecv == numNodes) 

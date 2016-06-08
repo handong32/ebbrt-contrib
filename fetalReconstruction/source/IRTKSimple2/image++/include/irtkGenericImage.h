@@ -33,6 +33,7 @@ i
 
 #define _1D_
 
+//convert 4D to 1D indexing
 #define TO1D(t, z, y, x, dT, dZ, dY, dX)                                       \
   (t * dZ * dY * dX + z * dY * dX + y * dX + x)
 
@@ -183,6 +184,7 @@ public:
   VoxelType *GetMat();
   double I2WSum();
   double W2ISum();
+  void SumVec(VoxelType* mat);
 
   //
   // Operators for image arithmetics
@@ -688,6 +690,17 @@ inline double irtkGenericImage<VoxelType>::I2WSum() {
 template <class VoxelType>
 inline double irtkGenericImage<VoxelType>::W2ISum() {
     return _matW2I.Sum();
+}
+
+template <class VoxelType>
+inline void irtkGenericImage<VoxelType>::SumVec(VoxelType* mat)
+{
+    int i, n;
+    
+    n = this->GetNumberOfVoxels();
+    for (i = 0; i < n; i++) {
+        _matrix[i] += mat[i];
+    }
 }
 
 #endif
