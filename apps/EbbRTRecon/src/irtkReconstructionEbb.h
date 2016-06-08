@@ -253,7 +253,9 @@ public:
   irtkRealImage _reconstructed_temp;
   vector<irtkRigidTransformation> _transformations;
   vector<double> _slices_regCertainty;
-  vector<bool> _slice_inside_cpu;
+  //vector<bool> _slice_inside_cpu;
+  vector<int> _slice_inside_cpu;
+
   //SLICES
   /// Slices
   vector<irtkRealImage> _simulated_slices;

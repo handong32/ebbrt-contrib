@@ -355,11 +355,7 @@ double sumOneImage(irtkRealImage a) {
 double sumImage(std::vector<irtkRealImage> a) {
   double sum = 0.0;
   for (int i = 0; i < a.size(); i++) {
-    irtkRealPixel *ap = a[i].GetPointerToVoxels();
-    for (int j = 0; j < a[i].GetNumberOfVoxels(); j++) {
-      sum += (double)*ap;
-      ap++;
-    }
+      sum += a[i].Sum();
   }
   return sum;
 }
@@ -367,11 +363,7 @@ double sumImage(std::vector<irtkRealImage> a) {
 double sumPartImage(std::vector<irtkRealImage> a, int s, int e) {
   double sum = 0.0;
   for (int i = s; i < e; i++) {
-    irtkRealPixel *ap = a[i].GetPointerToVoxels();
-    for (int j = 0; j < a[i].GetNumberOfVoxels(); j++) {
-      sum += (double)*ap;
-      ap++;
-    }
+      sum += a[i].Sum();
   }
   return sum;
 }
@@ -387,6 +379,24 @@ double sumVec(std::vector<double> b) {
 int sumBool(std::vector<bool> b) {
   int sum = 0;
   for (int i = 0; i < b.size(); i++) {
+    if (b[i])
+      sum++;
+  }
+  return sum;
+}
+
+int sumInt(std::vector<int> b) {
+  int sum = 0;
+  for (int i = 0; i < b.size(); i++) {
+    if (b[i])
+      sum++;
+  }
+  return sum;
+}
+
+int sumPartInt(std::vector<int> b, int s, int e) {
+  int sum = 0;
+  for (int i = s; i < e; i++) {
     if (b[i])
       sum++;
   }
@@ -677,22 +687,6 @@ void irtkReconstructionEbb::DeserializeTransformations(ebbrt::IOBuf::DataPointer
 }
 
 void irtkReconstructionEbb::SendRecon(int iterations) {
-    
-    /*for (int i = 0; i < (int)nids.size(); i++) 
-    {
-	auto buf = MakeUniqueIOBuf(1 * sizeof(int));
-	auto dp = buf->GetMutDataPointer();
-	dp.Get<int>() = 0;
-
-	buf->PrependChain(std::move(SerializeSlices()));
-	buf->PrependChain(std::move(SerializeReconstructed()));
-	buf->PrependChain(std::move(SerializeMask()));
-	buf->PrependChain(std::move(SerializeTransformations()));
-	
-	FORPRINTF("SendRecon : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
-	SendMessage(nids[i], std::move(buf));
-	}*/
-    
     double delta = 150;
     double lastIterLambda = 0.01;
     int rec_iterations_first = 4;
@@ -1369,10 +1363,9 @@ void runSimulateSlices(irtkReconstructionEbb *reconstructor, int start,
 
     reconstructor->_simulated_inside[inputIndex].Initialize(
         reconstructor->_slices[inputIndex].GetImageAttributes());
-
+    
     reconstructor->_simulated_inside[inputIndex] = 0;
-
-    reconstructor->_slice_inside_cpu[inputIndex] = false;
+    reconstructor->_slice_inside_cpu[inputIndex] = 0;
 
     POINT3D p;
     for (unsigned int i = 0; i < reconstructor->_slices[inputIndex].GetX();
@@ -1392,7 +1385,7 @@ void runSimulateSlices(irtkReconstructionEbb *reconstructor, int start,
 
             if (reconstructor->_mask(p.x, p.y, p.z) == 1) {
               reconstructor->_simulated_inside[inputIndex](i, j, 0) = 1;
-              reconstructor->_slice_inside_cpu[inputIndex] = true;
+              reconstructor->_slice_inside_cpu[inputIndex] = 1;
             }
           }
 
@@ -1409,10 +1402,11 @@ void runSimulateSlices(irtkReconstructionEbb *reconstructor, int start,
 class ParallelSimulateSlices {
   irtkReconstructionEbb *reconstructor;
   int nt;
-
+  int start;
+  int end;
 public:
-  ParallelSimulateSlices(irtkReconstructionEbb *_reconstructor, int _nt)
-      : reconstructor(_reconstructor), nt(_nt) {}
+    ParallelSimulateSlices(irtkReconstructionEbb *_reconstructor, int _nt, int _start, int _end)
+	: reconstructor(_reconstructor), nt(_nt), start(_start), end(_end) {}
 
   void operator()(const blocked_range<int> &r) const {
     runSimulateSlices(reconstructor, r.begin(), r.end());
@@ -1421,22 +1415,31 @@ public:
   // execute
   void operator()() const {
     task_scheduler_init init(nt);
-    parallel_for(blocked_range<int>(0, reconstructor->_slices.size()), *this);
+    parallel_for(blocked_range<int>(0, (end-start)), *this);
     init.terminate();
   }
 };
 void irtkReconstructionEbb::SimulateSlices() {
 #ifndef __EBBRT_BM__
-  ParallelSimulateSlices parallelSimulateSlices(this, _numThreads);
-  parallelSimulateSlices();
+    for (int i = 0; i < (int)nids.size(); i++) 
+    {
+	auto buf = MakeUniqueIOBuf(1 * sizeof(int));
+	auto dp = buf->GetMutDataPointer();
+	dp.Get<int>() = 2;
+	buf->PrependChain(std::move(serializeSlices(_reconstructed)));
+	FORPRINTF("SimulateSlices : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+	SendMessage(nids[i], std::move(buf));
+    }
+    ParallelSimulateSlices parallelSimulateSlices(this, _numThreads, 0, _slices.size());
+    parallelSimulateSlices();
 #else
-  size_t ncpus = ebbrt::Cpu::Count();
+/*size_t ncpus = ebbrt::Cpu::Count();
   if (ncpus > 1) {
     static ebbrt::SpinBarrier bar(ncpus);
     ebbrt::EventManager::EventContext context;
     std::atomic<size_t> count(0);
     size_t theCpu = ebbrt::Cpu::GetMine();
-    int diff = this->_diff;
+    int diff = (_end-_start);
     for (size_t i = 0; i < ncpus; i++) {
       // spawn jobs on each core using SpawnRemote
       ebbrt::event_manager->SpawnRemote(
@@ -1463,16 +1466,30 @@ void irtkReconstructionEbb::SimulateSlices() {
     ebbrt::event_manager->SaveContext(context);
   } else {
     runSimulateSlices(this, 0, _slices.size());
-  }
+  }*/
+   
+    runSimulateSlices(this, _start, _end);
 #endif
 
-  /*FORPRINTF("\n****** SimulateSlices*****\n");
-  FORPRINTF("\t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n\t_reconstructed=%lf\n\t_reconstructed_temp=%lf\n",
-  sumImage(_simulated_slices), sumImage(_simulated_weights),
-  sumImage(_simulated_inside), sumBool(_slice_inside_cpu), SumRecon(),
-  sumOneImage(_reconstructed_temp));
+  FORPRINTF("\n****** SimulateSlices*****\n");
+#ifndef __EBBRT_BM__
+  FORPRINTF("\n_start = %d, _end = %d, \t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n", _start, _end, sumPartImage(_simulated_slices, _start, _end), sumPartImage(_simulated_weights, _start, _end), sumPartImage(_simulated_inside, _start, _end), sumPartInt(_slice_inside_cpu, _start, _end));
+  _start = 124;
+  _end = 248;
+    FORPRINTF("\n_start = %d, _end = %d, \t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n\n", _start, _end, sumPartImage(_simulated_slices, _start, _end), sumPartImage(_simulated_weights, _start, _end), sumPartImage(_simulated_inside, _start, _end), sumPartInt(_slice_inside_cpu, _start, _end));
+
+  FORPRINTF("\t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n", sumImage(_simulated_slices), sumImage(_simulated_weights), sumImage(_simulated_inside), sumInt(_slice_inside_cpu));
+
+#else
+  FORPRINTF("\n_start = %d, _end = %d, \t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n\n", _start, _end, sumPartImage(_simulated_slices, _start, _end), sumPartImage(_simulated_weights, _start, _end), sumPartImage(_simulated_inside, _start, _end), sumPartInt(_slice_inside_cpu, _start, _end));
+#endif
   FORPRINTF("\n**********************\n");
-  */
+
+#ifndef __EBBRT_BM__
+  testFuture = ebbrt::Promise<int>();
+  auto tf = testFuture.GetFuture();
+  tf.Block();
+#endif
 }
 
 void irtkReconstructionEbb::SimulateStacks(vector<irtkRealImage> &stacks) {
@@ -2157,7 +2174,7 @@ void irtkReconstructionEbb::InitVoxelStruct() {
 void runCoeffInit(irtkReconstructionEbb *reconstructor, int start, int end) {
   for (int inputIndex = start; inputIndex != end; ++inputIndex) {
 
-    bool slice_inside;
+    int slice_inside;
 
     // current slice
     // irtkRealImage slice;
@@ -2182,7 +2199,7 @@ void runCoeffInit(irtkReconstructionEbb *reconstructor, int start, int end) {
                             vector<VOXELCOEFFS>(slice.GetY(), empty));
 
     // to check whether the slice has an overlap with mask ROI
-    slice_inside = false;
+    slice_inside = 0;
 
     // PSF will be calculated in slice space in higher resolution
 
@@ -2373,7 +2390,7 @@ void runCoeffInit(irtkReconstructionEbb *reconstructor, int start, int end) {
                             sum += weight;
                             if (reconstructor->_mask(l, m, n) == 1) {
                               inside = true;
-                              slice_inside = true;
+                              slice_inside = 1;
                             }
                           }
                 // if there were no voxels do nothing
@@ -4672,6 +4689,7 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
   struct timeval lstart, lend;
   float sumCompute = 0.0;
   float tempTime = 0.0;
+  float temp2 = 0.0;
 
   FORPRINTF("irtkReconstructionEbb::RunRecon()\n");
 
@@ -4764,7 +4782,8 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
                ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
     timers[SIMULATESLICES] += tempTime;
     sumCompute += tempTime;
-
+    goto done;
+    
     // #ifdef __EBBRT_BM__
     //     Print(nids[0], "S SimulateSlices()");
     // #endif
@@ -4905,7 +4924,7 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
                 ((tend.tv_usec - tstart.tv_usec) / 1000000.0));
   FORPRINTF("sumCompute: %lf seconds\n", sumCompute);
 
-  float temp2 = 0.0;
+
   for (i = 0; i < 13; i++) {
     temp2 += timers[i];
   }
@@ -4913,6 +4932,7 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
 
   FORPRINTF("checksum _reconstructed = %lf\n", SumRecon());
 
+done:
   mypromise.SetValue();
   // save final result
   //_reconstructed.Write("3TStackReconstruction.nii");
@@ -5003,19 +5023,30 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
   {
      GaussianReconstruction();
   }
-  else if(ret == 99)
+  else if(ret == 2)
   {
-      for(int i = 0; i < 248; i++)
+      _simulated_slices.clear();
+      _simulated_weights.clear();
+      _simulated_inside.clear();
+      
+      int i;
+      for(i=0;i<_slices.size();i++)
       {
-	  FORPRINTF("attr sum = %lf, sum = %lf, W2ISum = %lf, I2WSum = %lf\n", _slices[i].AttrSum(), _slices[i].Sum(), _slices[i].W2ISum(), _slices[i].I2WSum());	
+	  _simulated_slices.push_back(_slices[i]);
+	  _simulated_weights.push_back(_slices[i]);
+	  _simulated_inside.push_back(_slices[i]);
       }
-      FORPRINTF("attr sum = %lf, sum = %lf, W2ISum = %lf, I2WSum = %lf\n", _reconstructed.AttrSum(), _reconstructed.Sum(), _reconstructed.W2ISum(), _reconstructed.I2WSum());	
 
+      int reconSize = dp.Get<int>();
+      dp.Get(reconSize*sizeof(double), _reconstructed.GetMat());
+      
+      SimulateSlices();
+      
       // sending
       auto retbuf = MakeUniqueIOBuf(1 * sizeof(int));
       auto retdp = retbuf->GetMutDataPointer();
       retdp.Get<int>() = ret;
-      SendMessage(nid, std::move(retbuf));
+      SendMessage(nids[0], std::move(retbuf));
   }
   else 
   {
@@ -5035,7 +5066,6 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
   {
       int start = dp.Get<int>();
       int end = dp.Get<int>();
-      FORPRINTF("start = %d, end = %d\n", start, end);
       
       if(gaussreconptr == NULL) {
 	  // malloc using _end and _start since can't guarantee end-start is the largest
@@ -5047,7 +5077,6 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       memcpy(_voxel_num.data()+start, gaussreconptr, (end-start)*sizeof(int));
 
       int reconSize = dp.Get<int>();
-      FORPRINTF("%d %d ", reconSize, _reconstructed.GetSizeMat());
       if(gaussreconptr2 == NULL)
       {
 	  gaussreconptr2 = (double*) malloc (_reconstructed.GetSizeMat()*sizeof(double));
@@ -5062,6 +5091,15 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       {
 	  reconRecv = 0;
 	  gaussianreconFuture.SetValue(1);
+      }
+  }
+  else if(ret == 2)
+  {
+      reconRecv++;
+      if (reconRecv == numNodes) 
+      {
+	  reconRecv = 0;
+	  testFuture.SetValue(1);
       }
   }
   else 
