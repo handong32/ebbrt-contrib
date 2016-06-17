@@ -151,7 +151,8 @@ int main(int argc, char **argv) {
   unsigned int T1PackageSize = 0;
   unsigned int numDevicesToUse = UINT_MAX;
   bool useSINCPSF = false;
-
+  bool serial = false;
+  
   try {
     po::options_description desc("Options");
     desc.add_options()("help,h", "Print usage messages")(
@@ -265,9 +266,10 @@ int main(int argc, char **argv) {
         po::bool_switch(&disableBiasCorr)->default_value(false),
         "disable bias field correction for cases with little or no bias field "
         "inhomogenities (makes it faster but less reliable for stron intensity "
-        "bias)")("numThreads", po::value<int>(&numThreads)->default_value(1),
+        "bias)")
+	("numThreads", po::value<int>(&numThreads)->default_value(1),
                  "Number of CPU threads to run for TBB");
-
+    
     po::variables_map vm;
 
     try {

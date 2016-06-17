@@ -77,6 +77,8 @@
 #include <ebbrt/UniqueIOBuf.h>
 #include <ebbrt/Future.h>
 
+#define __MNODE__
+
 #ifdef __EBBRT_BM__
 #include <ebbrt/SpinLock.h>
 #endif
@@ -403,6 +405,14 @@ int sumPartInt(std::vector<int> b, int s, int e) {
   return sum;
 }
 
+double sumPartVec(std::vector<double> b, int s, int e) {
+  double sum = 0.0;
+  for (int i = s; i < e; i++) {
+    sum += (double)b[i];
+  }
+  return sum;
+}
+
 struct membuf : std::streambuf {
   membuf(char *begin, char *end) { this->setg(begin, begin, end); }
 };
@@ -465,9 +475,9 @@ irtkReconstructionEbb::irtkReconstructionEbb(EbbId ebbid)
   nids.clear();
   reconRecv = 0;
 
-  tsigma = 0;
+  _tsigma = 0;
   tmix = 0;
-  tnum = 0;
+  _tnum = 0;
   tmin = voxel_limits<irtkRealPixel>::max();
   tmax = voxel_limits<irtkRealPixel>::min();
 }
@@ -1349,7 +1359,15 @@ void irtkReconstructionEbb::ScaleVolume() {
 
 void runSimulateSlices(irtkReconstructionEbb *reconstructor, int start,
                        int end) {
+#ifdef __EBBRT_BM__
+    FORPRINTF("ccc\n");
+#endif
+
   for (int inputIndex = start; inputIndex != end; ++inputIndex) {
+#ifdef __EBBRT_BM__
+      FORPRINTF("%d\n", inputIndex);
+#endif
+
     // Calculate simulated slice
     reconstructor->_simulated_slices[inputIndex].Initialize(
         reconstructor->_slices[inputIndex].GetImageAttributes());
@@ -1421,6 +1439,7 @@ public:
 };
 void irtkReconstructionEbb::SimulateSlices() {
 #ifndef __EBBRT_BM__
+#ifdef __MNODE__
     for (int i = 0; i < (int)nids.size(); i++) 
     {
 	auto buf = MakeUniqueIOBuf(1 * sizeof(int));
@@ -1430,11 +1449,15 @@ void irtkReconstructionEbb::SimulateSlices() {
 	FORPRINTF("SimulateSlices : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
 	SendMessage(nids[i], std::move(buf));
     }
-    ParallelSimulateSlices parallelSimulateSlices(this, _numThreads, 0, _slices.size());
-    parallelSimulateSlices();
+    ParallelSimulateSlices parallelSimulateSlices(this, _numThreads, _start, _end);
 #else
-/*size_t ncpus = ebbrt::Cpu::Count();
-  if (ncpus > 1) {
+    ParallelSimulateSlices parallelSimulateSlices(this, _numThreads, 0, _slices.size());    
+#endif
+
+    parallelSimulateSlices();
+
+#else
+    size_t ncpus = ebbrt::Cpu::Count();
     static ebbrt::SpinBarrier bar(ncpus);
     ebbrt::EventManager::EventContext context;
     std::atomic<size_t> count(0);
@@ -1448,9 +1471,9 @@ void irtkReconstructionEbb::SimulateSlices() {
             size_t mycpu = ebbrt::Cpu::GetMine();
             int starte, ende, factor;
             factor = (int)ceil(diff / (float)ncpus);
-            starte = i * factor;
-            ende = i * factor + factor;
-            ende = (ende > diff) ? diff : ende;
+	    starte = (i * factor) + _start;
+	    ende = (i * factor + factor) + _start;
+            ende = (ende > _end) ? _end : ende;
             runSimulateSlices(this, starte, ende);
             count++;
             bar.Wait();
@@ -1464,31 +1487,18 @@ void irtkReconstructionEbb::SimulateSlices() {
               i)); // if i don't add indexToCPU, one of the cores never run ? ?
     }
     ebbrt::event_manager->SaveContext(context);
-  } else {
-    runSimulateSlices(this, 0, _slices.size());
-  }*/
-   
-    runSimulateSlices(this, _start, _end);
 #endif
 
-  FORPRINTF("\n****** SimulateSlices*****\n");
+FORPRINTF("\n****** SimulateSlices*****\n");
+/*FORPRINTF("\n_start = %d, _end = %d, \t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n\n", _start, _end, sumPartImage(_simulated_slices, _start, _end), sumPartImage(_simulated_weights, _start, _end), sumPartImage(_simulated_inside, _start, _end), sumPartInt(_slice_inside_cpu, _start, _end));
+FORPRINTF("\n**********************\n");*/
+
 #ifndef __EBBRT_BM__
-  FORPRINTF("\n_start = %d, _end = %d, \t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n", _start, _end, sumPartImage(_simulated_slices, _start, _end), sumPartImage(_simulated_weights, _start, _end), sumPartImage(_simulated_inside, _start, _end), sumPartInt(_slice_inside_cpu, _start, _end));
-  _start = 124;
-  _end = 248;
-    FORPRINTF("\n_start = %d, _end = %d, \t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n\n", _start, _end, sumPartImage(_simulated_slices, _start, _end), sumPartImage(_simulated_weights, _start, _end), sumPartImage(_simulated_inside, _start, _end), sumPartInt(_slice_inside_cpu, _start, _end));
-
-  FORPRINTF("\t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n", sumImage(_simulated_slices), sumImage(_simulated_weights), sumImage(_simulated_inside), sumInt(_slice_inside_cpu));
-
-#else
-  FORPRINTF("\n_start = %d, _end = %d, \t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n\n", _start, _end, sumPartImage(_simulated_slices, _start, _end), sumPartImage(_simulated_weights, _start, _end), sumPartImage(_simulated_inside, _start, _end), sumPartInt(_slice_inside_cpu, _start, _end));
+#ifdef __MNODE__
+testFuture = ebbrt::Promise<int>();
+auto tf = testFuture.GetFuture();
+tf.Block();
 #endif
-  FORPRINTF("\n**********************\n");
-
-#ifndef __EBBRT_BM__
-  testFuture = ebbrt::Promise<int>();
-  auto tf = testFuture.GetFuture();
-  tf.Block();
 #endif
 }
 
@@ -2499,13 +2509,14 @@ void irtkReconstructionEbb::CoeffInit() {
   _slice_inside_cpu.resize(_slices.size());
 
 #ifndef __EBBRT_BM__
+#ifdef __MNODE__
   int diff = _slices.size();
   int factor = (int)ceil(diff / (float)(numNodes+1));
   _start = 0 * factor;
   _end = 0 * factor + factor;
   _end = (_end > diff) ? diff : _end;
   
-  FORPRINTF("_start = %d, _end = %d\n", _start, _end);
+  //FORPRINTF("_start = %d, _end = %d\n", _start, _end);
 
   for (int i = 0; i < (int)nids.size(); i++) 
   {
@@ -2527,10 +2538,12 @@ void irtkReconstructionEbb::CoeffInit() {
       FORPRINTF("CoeffInit : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
       SendMessage(nids[i], std::move(buf));
   }
+#endif
+
   ParallelCoeffInit coeffinit(this, _numThreads);
   coeffinit();
 #else
-  FORPRINTF("_start = %d, _end = %d\n", _start, _end);
+  //FORPRINTF("_start = %d, _end = %d\n", _start, _end);
   size_t ncpus = ebbrt::Cpu::Count();
   if (ncpus > 1) {
     static ebbrt::SpinBarrier bar(ncpus);
@@ -2601,13 +2614,15 @@ void irtkReconstructionEbb::CoeffInit() {
 
   _average_volume_weight = sum / num;
 
-  FORPRINTF("\n********* COEFFINIT ***********\n\t_average_volume_weight = %lf\n\t_volume_weights = %f\n\tchecksum _reconstructed = %f\n*********************\n", _average_volume_weight, sumOneImage(_volume_weights), SumRecon());
+  //FORPRINTF("\n********* COEFFINIT ***********\n\t_average_volume_weight = %lf\n\t_volume_weights = %f\n\tchecksum _reconstructed = %f\n*********************\n", _average_volume_weight, sumOneImage(_volume_weights), SumRecon());
   
   
 #ifndef __EBBRT_BM__
+#ifdef __MNODE__
   auto tf = testFuture.GetFuture();
   tf.Block();
   FORPRINTF("CoeffInit: returned from future\n");
+#endif
 #endif
 
 } // end of CoeffInit()
@@ -2622,6 +2637,7 @@ void irtkReconstructionEbb::GaussianReconstruction() {
   int slice_vox_num;
 
 #ifndef __EBBRT_BM__
+#ifdef __MNODE__
   for (int i = 0; i < (int)nids.size(); i++) 
   {
       auto buf = MakeUniqueIOBuf(1 * sizeof(int));
@@ -2631,6 +2647,7 @@ void irtkReconstructionEbb::GaussianReconstruction() {
       FORPRINTF("GaussianReconstruction : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
       SendMessage(nids[i], std::move(buf));
   }
+#endif
   _voxel_num.resize(_slices.size());
 #else
   _voxel_num.resize(_end-_start);
@@ -2640,7 +2657,11 @@ void irtkReconstructionEbb::GaussianReconstruction() {
   _reconstructed = 0;
 
   // CPU
+#ifdef __MNODE__
   for (inputIndex = _start; inputIndex < _end; ++inputIndex) {
+#else
+    for (inputIndex = 0; inputIndex < _slices.size(); ++inputIndex) {
+#endif
     // copy the current slice
     slice = _slices[inputIndex];
     // alias the current bias image
@@ -2711,9 +2732,11 @@ void irtkReconstructionEbb::GaussianReconstruction() {
   
 //block here before continuing
 #ifndef __EBBRT_BM__
+#ifdef __MNODE__
    auto tf = gaussianreconFuture.GetFuture();
    tf.Block();
    FORPRINTF("GaussianReconstruction: returned from future\n");   
+#endif
 #endif
    
   // now find slices with small overlap with ROI and exclude them.
@@ -2822,11 +2845,28 @@ void irtkReconstructionEbb::InitializeRobustStatistics() {
   // Initialise parameter of EM robust statistics
   int i, j;
   irtkRealImage slice, sim;
-  double sigma = 0;
-  int num = 0;
+  _tsigma = 0.0;
+  _tnum = 0;
+  
+#ifndef __EBBRT_BM__
+#ifdef __MNODE__
+  for (i = 0; i < (int)nids.size(); i++) 
+  {
+      auto buf = MakeUniqueIOBuf(1 * sizeof(int));
+      auto dp = buf->GetMutDataPointer();
+      dp.Get<int>() = 3;
+      FORPRINTF("InitializeRobustStatistics : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+      SendMessage(nids[i], std::move(buf));
+  }
+#endif
+#endif
 
   // for each slice
-  for (unsigned int inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
+#ifdef __MNODE__
+  for (unsigned int inputIndex = _start; inputIndex < _end; inputIndex++) {
+#else
+    for (unsigned int inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
+#endif
     slice = _slices[inputIndex];
 
     // Voxel-wise sigma will be set to stdev of volumetric errors
@@ -2838,8 +2878,8 @@ void irtkReconstructionEbb::InitializeRobustStatistics() {
           if ((_simulated_inside[inputIndex](i, j, 0) == 1) &&
               (_simulated_weights[inputIndex](i, j, 0) > 0.99)) {
             slice(i, j, 0) -= _simulated_slices[inputIndex](i, j, 0);
-            sigma += slice(i, j, 0) * slice(i, j, 0);
-            num++;
+            _tsigma += slice(i, j, 0) * slice(i, j, 0);
+            _tnum++;
           }
         }
 
@@ -2847,13 +2887,20 @@ void irtkReconstructionEbb::InitializeRobustStatistics() {
     if (!_slice_inside_cpu[inputIndex])
       _slice_weight_cpu[inputIndex] = 0;
   }
+  
+#ifndef __EBBRT_BM__
+#ifdef __MNODE__
+    testFuture = ebbrt::Promise<int>();
+  auto tf = testFuture.GetFuture();
+  tf.Block();
+#endif
 
   // Force exclusion of slices predefined by user - not needed - Han
   // for (unsigned int i = 0; i < _force_excluded.size(); i++)
   //  _slice_weight_cpu[_force_excluded[i]] = 0;
 
   // initialize sigma for voxelwise robust statistics
-  _sigma_cpu = sigma / num;
+  _sigma_cpu = _tsigma / _tnum;
   // initialize sigma for slice-wise robust statistics
   _sigma_s_cpu = 0.025;
   // initialize mixing proportion for inlier class in voxel-wise robust
@@ -2865,27 +2912,26 @@ void irtkReconstructionEbb::InitializeRobustStatistics() {
   // Initialise value for uniform distribution according to the range of
   // intensities
   _m_cpu = 1 / (2.1 * _max_intensity - 1.9 * _min_intensity);
+  
+FORPRINTF("\nInitializeRobustStatistics: \n\t_sigma_cpu=%lf\n\tsigma_s_cpu=%lf\n\t_mix_cpu=%lf\n\t_mix_s_cpu=%lf\n\t_m_cpu=%lf\n\t_tsigma=%lf, _tnum=%d\n",  _sigma_cpu, _sigma_s_cpu, _mix_cpu, _mix_s_cpu, _m_cpu, _tsigma, _tnum);
 
-  // FORPRINTF("\n****** InitializeRobustStatistics*****\n");
-  /*FORPRINTF("\t_slice_weight_cpu=%lf\n\t_sigma_cpu=%lf\n\tsigma_s_cpu=%lf\n\t_mix_cpu=%lf\n\t_mix_s_cpu=%lf\n\t_m_cpu=%lf\n\t_simulated_slices=%lf\n\t_slices=%lf\n\tnum=%d\n\t_simulated_inside=%lf\n\t_simulated_weights=%lf\n\tsigma=%lf\n",
-  sumVec(_slice_weight_cpu), _sigma_cpu, _sigma_s_cpu, _mix_cpu, _mix_s_cpu,
-  _m_cpu, sumImage(_simulated_slices), sumImage(_slices), num,
-  sumImage(_simulated_inside), sumImage(_simulated_weights), sigma);
-  FORPRINTF("\n**********************\n");*/
+#else
+  auto retbuf = MakeUniqueIOBuf((2 * sizeof(int)) + (1 * sizeof(double)));
+  auto retdp = retbuf->GetMutDataPointer();
+  
+  retdp.Get<int>() = 3;
+  retdp.Get<int>() = _tnum;
+  retdp.Get<double>() = _tsigma;
 
-  FORPRINTF("\nInitializeRobustStatistics: \n\t_sigma_cpu=%lf\n\tsigma_s_cpu=%lf\n\t_mix_cpu=%lf\n\t_mix_s_cpu=%lf\n\t_m_cpu=%lf\n",  _sigma_cpu, _sigma_s_cpu, _mix_cpu, _mix_s_cpu, _m_cpu);
+  FORPRINTF("InitializeRobustStatistics : Sending %d bytes\n", (int)retbuf->ComputeChainDataLength());
+  SendMessage(nids[0], std::move(retbuf));
+#endif
 }
 
-void runEStep(irtkReconstructionEbb *reconstructor, int start, int end) {
+void runEStep(irtkReconstructionEbb *reconstructor, int start, int end, double &sum, double &den, double &sum2, double &den2, double &maxs, double &mins) {
   for (int inputIndex = start; inputIndex < end; inputIndex++) {
     // read the current slice
     irtkRealImage slice = reconstructor->_slices[inputIndex];
-
-    // read current weight image
-    // read the current weight image
-    // irtkRealImage &w = _weights[inputIndex];
-
-    //_weights[inputIndex] = 0;
 
     // alias the current bias image
     irtkRealImage &b = reconstructor->_bias[inputIndex];
@@ -2895,7 +2941,7 @@ void runEStep(irtkReconstructionEbb *reconstructor, int start, int end) {
 
     double num = 0;
     // Calculate error, voxel weights, and slice potential
-    for (int i = 0; i < slice.GetX(); i++)
+    for (int i = 0; i < slice.GetX(); i++) {
       for (int j = 0; j < slice.GetY(); j++) {
         if (slice(i, j, 0) != -1) {
           // bias correct and scale the slice
@@ -2914,7 +2960,6 @@ void runEStep(irtkReconstructionEbb *reconstructor, int start, int end) {
                 reconstructor->_simulated_slices[inputIndex](i, j, 0);
 
             // calculate norm and voxel-wise weights
-
             // Gaussian distribution for inliers (likelihood)
             double g =
                 reconstructor->G(slice(i, j, 0), reconstructor->_sigma_cpu);
@@ -2926,7 +2971,6 @@ void runEStep(irtkReconstructionEbb *reconstructor, int start, int end) {
                             (g * reconstructor->_mix_cpu +
                              m * (1 - reconstructor->_mix_cpu));
             // w.PutAsDouble(i, j, 0, weight);
-
             //_weights[inputIndex].PutAsDouble(i, j, 0, weight);
 
             reconstructor->_weights[inputIndex](i, j, 0) = weight;
@@ -2942,221 +2986,273 @@ void runEStep(irtkReconstructionEbb *reconstructor, int start, int end) {
           }
         }
       }
+    }
+
     // evaluate slice potential
     if (num > 0) {
       reconstructor->slice_potential[inputIndex] =
           sqrt(reconstructor->slice_potential[inputIndex] / num);
-    } else
-      reconstructor->slice_potential[inputIndex] =
-          -1; // slice has no unpadded voxels
+    } 
+    else
+    {
+      reconstructor->slice_potential[inputIndex] = -1; // slice has no unpadded voxels
+    }
+
+    for(int i = 0; i < reconstructor->_small_slices.size(); i++)
+    {
+	reconstructor->slice_potential[reconstructor->_small_slices[i]] = -1;
+    }
+
+    if ((reconstructor->_scale_cpu[inputIndex] < 0.2) || (reconstructor->_scale_cpu[inputIndex] > 5)) 
+    {
+	reconstructor->slice_potential[inputIndex] = -1;
+    }
+
+    if (reconstructor->slice_potential[inputIndex] >= 0)
+    {
+	// calculate means
+	sum += reconstructor->slice_potential[inputIndex] * reconstructor->_slice_weight_cpu[inputIndex];
+	den += reconstructor->_slice_weight_cpu[inputIndex];
+	sum2 += reconstructor->slice_potential[inputIndex] * (1 - reconstructor->_slice_weight_cpu[inputIndex]);
+	den2 += (1 - reconstructor->_slice_weight_cpu[inputIndex]);
+	
+	// calculate min and max of potentials in case means need to be initalized
+	if (reconstructor->slice_potential[inputIndex] > maxs)
+	    maxs = reconstructor->slice_potential[inputIndex];
+	if (reconstructor->slice_potential[inputIndex] < mins)
+	    mins = reconstructor->slice_potential[inputIndex];
+    }
   }
 }
 
 class ParallelEStep {
-  irtkReconstructionEbb *reconstructor;
-  vector<double> &slice_potential;
-  int nt;
-
+    irtkReconstructionEbb *reconstructor;
+    vector<double> &slice_potential;
+    int nt;
+    int start;
+    int end;
 public:
-  void operator()(const blocked_range<int> &r) const {
-    runEStep(reconstructor, r.begin(), r.end());
+    double sum, den, sum2, den2, maxs, mins;
+  void operator()(const blocked_range<int> &r) {
+      runEStep(reconstructor, r.begin(), r.end(), sum, den, sum2, den2, maxs, mins);
   }
 
   ParallelEStep(irtkReconstructionEbb *reconstructor,
-                vector<double> &slice_potential, int _nt)
+                vector<double> &slice_potential, int _nt, int _start, int _end)
       : reconstructor(reconstructor), slice_potential(slice_potential),
-        nt(_nt) {}
+        nt(_nt), start(_start), end(_end) {
+      sum = den = sum2 = den2 = maxs = 0;
+      mins = 1;
+  }
+
+  void join(const ParallelEStep &y) {
+      sum += y.sum;
+      den += y.den;
+      sum2 += y.sum2;
+      den2 += y.den2;
+      if(y.maxs > maxs) maxs = y.maxs;
+      if(y.mins < mins) mins = y.mins;
+  }
 
   // execute
-  void operator()() const {
+  void operator()() {
     task_scheduler_init init(nt);
-    parallel_for(blocked_range<int>(0, reconstructor->_slices.size()), *this);
+    parallel_reduce(blocked_range<int>(0, (end-start)), *this);
     init.terminate();
   }
 };
 
 void irtkReconstructionEbb::EStep() {
-  size_t inputIndex;
-  irtkRealImage slice, w, b, sim;
-  int num = 0;
-  std::fill(slice_potential.begin(), slice_potential.end(), 0);
-// vector<double> slice_potential(_slices.size(), 0);
-
+    size_t inputIndex;
+    irtkRealImage slice, w, b, sim;
+    int num = 0;
+    std::fill(slice_potential.begin(), slice_potential.end(), 0);
+	
 #ifndef __EBBRT_BM__
+#ifdef __MNODE__
+    for (int i = 0; i < (int)nids.size(); i++) 
+    {
+	auto buf = MakeUniqueIOBuf((2 * sizeof(int)) + (1 * sizeof(double)));
+	auto dp = buf->GetMutDataPointer();
+	dp.Get<int>() = 4;
+	dp.Get<double>() = _sigma_cpu;
+	dp.Get<int>() = _small_slices.size();
+	
+	auto vnum = std::make_unique<StaticIOBuf>(
+	    reinterpret_cast<const uint8_t *>(_small_slices.data()),
+	    (size_t)(_small_slices.size() * sizeof(int)));
 
-  ParallelEStep parallelEStep(this, slice_potential, _numThreads);
-  parallelEStep();
-/*FORPRINTF("Hosted EStep\n");
+	buf->PrependChain(std::move(vnum));
+	
+	FORPRINTF("EStep : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+	SendMessage(nids[i], std::move(buf));
+    }
+    ParallelEStep parallelEStep(this, slice_potential, _numThreads, _start, _end);
+    parallelEStep();
 
-ebbrt::EventManager::EventContext context2;
-irtkReconstructionEbb *r = this;
+    _tsum = parallelEStep.sum;
+    _tden = parallelEStep.den;
+    _tsum2 = parallelEStep.sum2;
+    _tden2 = parallelEStep.den2;
+    _tmaxs = parallelEStep.maxs;
+    _tmins = parallelEStep.mins;
 
-ebbrt::event_manager->Spawn(
-      [&r]() {
-          int start, end, factor;
-
-          for(int i = 0; i < (int)r->nids.size(); i++)
-          {
-              std::ostringstream ofs;
-              boost::archive::text_oarchive oa(ofs);
-
-              factor = (int)ceil(r->_slices_size / (float)r->numNodes);
-              start = i * factor;
-              end = i * factor + factor;
-              end = (end > r->_slices_size) ? r->_slices_size : end;
-
-              for (int j = start; j < end; j++) {
-                  oa & r->_bias[j];
-              }
-
-              for (int j = start; j < end; j++) {
-                  oa & r->_volcoeffs[j];
-              }
-
-              for (int j = start; j < end; j++) {
-                  oa & r->_simulated_weights[j];
-              }
-
-              for (int j = start; j < end; j++) {
-                  oa & r->_simulated_slices[j];
-              }
-
-              for (int j = start; j < end; j++) {
-                  oa & r->_weights[j];
-              }
-
-              std::vector<double> _scale_cpu_sub;
-              for (int j = start; j < end; j++) {
-                  _scale_cpu_sub.push_back(r->_scale_cpu[j]);
-              }
-              oa & _scale_cpu_sub & r->_sigma_cpu & r->_m_cpu & r->_mix_cpu;
-
-              std::string ts = "D " + ofs.str();
-
-              FORPRINTF("HOSTED start=%d, end=%d\n", start, end);
-              r->Print(r->nids[i], ts.c_str());
-          }
-  });
-
-  emec2 = &context2;
-  ebbrt::event_manager->SaveContext(*emec2);
-*/
+    testFuture = ebbrt::Promise<int>();
+    auto tf = testFuture.GetFuture();
+    tf.Block();
 #else
-  size_t ncpus = ebbrt::Cpu::Count();
-  if (ncpus > 1) {
-    static ebbrt::SpinBarrier bar(ncpus);
-    ebbrt::EventManager::EventContext context;
-    std::atomic<size_t> count(0);
-    size_t theCpu = ebbrt::Cpu::GetMine();
-    int diff = this->_diff;
-    for (size_t i = 0; i < ncpus; i++) {
-      // spawn jobs on each core using SpawnRemote
-      ebbrt::event_manager->SpawnRemote(
-          [this, theCpu, ncpus, &count, &context, i, diff]() {
-            // get my cpu id
-            size_t mycpu = ebbrt::Cpu::GetMine();
-            int starte, ende, factor;
-            factor = (int)ceil(diff / (float)ncpus);
-            starte = i * factor;
-            ende = i * factor + factor;
-            ende = (ende > diff) ? diff : ende;
+    ParallelEStep parallelEStep(this, slice_potential, _numThreads, 0, _slices.size());
+    parallelEStep();
 
-            runEStep(this, starte, ende);
-
-            count++;
-            bar.Wait();
-            while (count < (size_t)ncpus)
-              ;
-            if (mycpu == theCpu) {
-              ebbrt::event_manager->ActivateContext(std::move(context));
-            }
-          },
-          indexToCPU(
-              i)); // if i don't add indexToCPU, one of the cores never run ? ?
-    }
-    ebbrt::event_manager->SaveContext(context);
-  } else {
-    runEStep(this, 0, _slices.size());
-  }
-
-  std::ostringstream ofs;
-  boost::archive::text_oarchive oa(ofs);
-  oa &_start &_end;
-
-  for (int j = 0; j < _diff; j++) {
-    oa &_weights[j];
-  }
-  oa &slice_potential;
-  std::string ts = "D " + ofs.str();
-  Print(nids[0], ts.c_str());
-
+    _tsum = parallelEStep.sum;
+    _tden = parallelEStep.den;
+    _tsum2 = parallelEStep.sum2;
+    _tden2 = parallelEStep.den2;
+    _tmaxs = parallelEStep.maxs;
+    _tmins = parallelEStep.mins;
 #endif
+    
+#else
 
-  // exclude slices identified as having small overlap with ROI, set their
-  // potentials to -1
-  for (unsigned int i = 0; i < _small_slices.size(); i++)
-    slice_potential[_small_slices[i]] = -1;
+    _tsum = _tden = _tsum2 = _tden2 = _tmaxs = 0;
+    _tmins = 1;
 
-  // these are unrealistic scales pointing at misregistration - exclude the
-  // corresponding slices
-  for (inputIndex = 0; inputIndex < slice_potential.size(); inputIndex++)
-    if ((_scale_cpu[inputIndex] < 0.2) || (_scale_cpu[inputIndex] > 5)) {
-      slice_potential[inputIndex] = -1;
+    size_t ncpus = ebbrt::Cpu::Count();
+    if (ncpus > 1) {
+	static ebbrt::SpinBarrier bar(ncpus);
+	ebbrt::EventManager::EventContext context;
+	std::atomic<size_t> count(0);
+	size_t theCpu = ebbrt::Cpu::GetMine();
+	int diff = (_end-_start);
+	for (size_t i = 0; i < ncpus; i++) {
+	    // spawn jobs on each core using SpawnRemote
+	    ebbrt::event_manager->SpawnRemote(
+		[this, theCpu, ncpus, &count, &context, i, diff]() {
+		    // get my cpu id
+		    size_t mycpu = ebbrt::Cpu::GetMine();
+		    int starte, ende, factor;
+		    factor = (int)ceil(diff / (float)ncpus);
+		    starte = (i * factor) + _start;
+		    ende = (i * factor + factor) + _start;
+		    ende = (ende > _end) ? _end : ende;
+
+		    double sum, den, sum2, den2, maxs, mins;
+		    sum = den = sum2 = den2 = maxs = 0;
+		    mins = 1;
+		    
+		    runEStep(this, starte, ende, sum, den, sum2, den2, maxs, mins);
+		    // braces for scoping
+		    {
+			// lock_guard auto unlocks end of scope, mutex doesn't work yet
+			std::lock_guard<ebbrt::SpinLock> l(spinlock);
+			_tsum += sum;
+			_tden += den;
+			_tsum2 += sum2;
+			_tden2 += den2;
+			if(maxs > _tmaxs) _tmaxs = maxs;
+			if(mins < _tmins) _tmins = mins;
+		    }
+
+		    count++;
+		    bar.Wait();
+		    while (count < (size_t)ncpus)
+			;
+		    if (mycpu == theCpu) {
+			ebbrt::event_manager->ActivateContext(std::move(context));
+		    }
+		},
+		indexToCPU(
+		    i)); // if i don't add indexToCPU, one of the cores never run ? ?
+	}
+	ebbrt::event_manager->SaveContext(context);
     }
 
-  // Calulation of slice-wise robust statistics parameters.
-  // This is theoretically M-step,
-  // but we want to use latest estimate of slice potentials
-  // to update the parameters
+    auto retbuf = MakeUniqueIOBuf((6 * sizeof(double)) + (1 * sizeof(int)));
+    auto retdp = retbuf->GetMutDataPointer();
+  
+    retdp.Get<int>() = 4;
+    retdp.Get<double>() = _tsum;
+    retdp.Get<double>() = _tden; 
+    retdp.Get<double>() = _tsum2; 
+    retdp.Get<double>() = _tden2; 
+    retdp.Get<double>() = _tmaxs; 
+    retdp.Get<double>() = _tmins; 
+				  
+    FORPRINTF("EStep : Sending %d bytes\n", (int)retbuf->ComputeChainDataLength());
+    SendMessage(nids[0], std::move(retbuf));
 
-  // Calculate means of the inlier and outlier potentials
-  double sum = 0, den = 0, sum2 = 0, den2 = 0, maxs = 0, mins = 1;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential[inputIndex] >= 0) {
-      // calculate means
-      sum += slice_potential[inputIndex] * _slice_weight_cpu[inputIndex];
-      den += _slice_weight_cpu[inputIndex];
-      sum2 += slice_potential[inputIndex] * (1 - _slice_weight_cpu[inputIndex]);
-      den2 += (1 - _slice_weight_cpu[inputIndex]);
+    return;
+#endif
+    //FORPRINTF("%lf %lf %lf %lf %lf %lf\n", _tsum, _tden, _tsum2, _tden2, _tmaxs, _tmins);
+  
+    if (_tden > 0)
+	_mean_s_cpu = _tsum / _tden;
+    else
+	_mean_s_cpu = _tmins;
+    
+    if (_tden2 > 0)
+	_mean_s2_cpu = _tsum2 / _tden2;
+    else
+	_mean_s2_cpu = (_tmaxs + _mean_s_cpu) / 2;
 
-      // calculate min and max of potentials in case means need to be initalized
-      if (slice_potential[inputIndex] > maxs)
-        maxs = slice_potential[inputIndex];
-      if (slice_potential[inputIndex] < mins)
-        mins = slice_potential[inputIndex];
+    //FORPRINTF("%lf %lf\n", _mean_s_cpu, _mean_s2_cpu);
+    
+#ifndef __EBBRT_BM__
+#ifdef __MNODE__
+    for (int i = 0; i < (int)nids.size(); i++) 
+    {
+	auto buf = MakeUniqueIOBuf((1 * sizeof(int)) + (2 * sizeof(double)));
+	auto dp = buf->GetMutDataPointer();
+	dp.Get<int>() = 5;
+	dp.Get<double>() = _mean_s_cpu;
+	dp.Get<double>() = _mean_s2_cpu;
+
+	FORPRINTF("EStep : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+	SendMessage(nids[i], std::move(buf));
+    }
+#endif
+#endif    
+    
+    // Calculate the variances of the potentials
+    _ttsum = 0;
+    _ttden = 0;
+    _ttsum2 = 0;
+    _ttden2 = 0;
+
+#ifdef __MNODE__  
+    for (inputIndex = _start; inputIndex < _end; inputIndex++)
+#else
+    for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
+#endif
+    {
+	if (slice_potential[inputIndex] >= 0) 
+	{
+	    _ttsum += (slice_potential[inputIndex] - _mean_s_cpu) *
+		(slice_potential[inputIndex] - _mean_s_cpu) *
+		_slice_weight_cpu[inputIndex];
+	  
+	    _ttden += _slice_weight_cpu[inputIndex];
+	  
+	    _ttsum2 += (slice_potential[inputIndex] - _mean_s2_cpu) *
+		(slice_potential[inputIndex] - _mean_s2_cpu) *
+		(1 - _slice_weight_cpu[inputIndex]);
+	  
+	    _ttden2 += (1 - _slice_weight_cpu[inputIndex]);
+	}
     }
 
-  if (den > 0)
-    _mean_s_cpu = sum / den;
-  else
-    _mean_s_cpu = mins;
-
-  if (den2 > 0)
-    _mean_s2_cpu = sum2 / den2;
-  else
-    _mean_s2_cpu = (maxs + _mean_s_cpu) / 2;
-
-  // Calculate the variances of the potentials
-  sum = 0;
-  den = 0;
-  sum2 = 0;
-  den2 = 0;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
-    if (slice_potential[inputIndex] >= 0) {
-      sum += (slice_potential[inputIndex] - _mean_s_cpu) *
-             (slice_potential[inputIndex] - _mean_s_cpu) *
-             _slice_weight_cpu[inputIndex];
-      den += _slice_weight_cpu[inputIndex];
-
-      sum2 += (slice_potential[inputIndex] - _mean_s2_cpu) *
-              (slice_potential[inputIndex] - _mean_s2_cpu) *
-              (1 - _slice_weight_cpu[inputIndex]);
-      den2 += (1 - _slice_weight_cpu[inputIndex]);
-    }
-
+#ifdef __MNODE__
+    testFuture = ebbrt::Promise<int>();
+    auto tf2 = testFuture.GetFuture();
+    tf2.Block();
+#endif
+  
+    //FORPRINTF("%lf %lf %lf %lf\n", _ttsum, _ttden, _ttsum2, _ttden2);
+    //return;
+  
   //_sigma_s
-  if ((sum > 0) && (den > 0)) {
-    _sigma_s_cpu = sum / den;
+  if ((_ttsum > 0) && (_ttden > 0)) {
+    _sigma_s_cpu = _ttsum / _ttden;
     // do not allow too small sigma
     if (_sigma_s_cpu < _step * _step / 6.28)
       _sigma_s_cpu = _step * _step / 6.28;
@@ -3165,8 +3261,8 @@ ebbrt::event_manager->Spawn(
   }
 
   // sigma_s2
-  if ((sum2 > 0) && (den2 > 0)) {
-    _sigma_s2_cpu = sum2 / den2;
+  if ((_ttsum2 > 0) && (_ttden2 > 0)) {
+    _sigma_s2_cpu = _ttsum2 / _ttden2;
     // do not allow too small sigma
     if (_sigma_s2_cpu < _step * _step / 6.28)
       _sigma_s2_cpu = _step * _step / 6.28;
@@ -3178,9 +3274,36 @@ ebbrt::event_manager->Spawn(
       _sigma_s2_cpu = _step * _step / 6.28;
   }
 
+
+#ifndef __EBBRT_BM__
+#ifdef __MNODE__
+  for (int i = 0; i < (int)nids.size(); i++) 
+  {
+      auto buf = MakeUniqueIOBuf((1 * sizeof(int)) + (2 * sizeof(double)));
+      auto dp = buf->GetMutDataPointer();
+      dp.Get<int>() = 6;
+      dp.Get<double>() = _sigma_s_cpu;
+      dp.Get<double>() = _sigma_s2_cpu;
+      
+      FORPRINTF("EStep : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+      SendMessage(nids[i], std::move(buf));
+  }
+#endif
+#endif
+
   // Calculate slice weights
   double gs1, gs2;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
+  //double sum = 0;
+  //num = 0;
+  _ttsum = 0;
+  _ttnum = 0;
+  
+#ifdef __MNODE__
+  for (inputIndex = _start; inputIndex < _end; inputIndex++)
+#else
+  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++) 
+#endif
+{
     // Slice does not have any voxels in volumetric ROI
     if (slice_potential[inputIndex] == -1) {
       _slice_weight_cpu[inputIndex] = 0;
@@ -3188,7 +3311,7 @@ ebbrt::event_manager->Spawn(
     }
 
     // All slices are outliers or the means are not valid
-    if ((den <= 0) || (_mean_s2_cpu <= _mean_s_cpu)) {
+    if ((_ttden <= 0) || (_mean_s2_cpu <= _mean_s_cpu)) {
       _slice_weight_cpu[inputIndex] = 1;
       continue;
     }
@@ -3218,27 +3341,26 @@ ebbrt::event_manager->Spawn(
           (slice_potential[inputIndex] > _mean_s_cpu)) // should not happen
         _slice_weight_cpu[inputIndex] = 1;
     }
-  }
 
-  // Update _mix_s this should also be part of MStep
-  sum = 0;
-  num = 0;
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
     if (slice_potential[inputIndex] >= 0) {
-      sum += _slice_weight_cpu[inputIndex];
-      num++;
+	_ttsum += _slice_weight_cpu[inputIndex];
+	_ttnum ++;
     }
-
-  if (num > 0)
-    _mix_s_cpu = sum / num;
-  else {
-    _mix_s_cpu = 0.9;
   }
 
-  /*FORPRINTF("\n****** EStep *****\n");
-  FORPRINTF("\t_weights=%lf\n\t_slice_weight_cpu=%lf\n\t_mix_s_cpu=%lf\n",
-  sumImage(_weights), sumVec(_slice_weight_cpu), _mix_s_cpu);
-  FORPRINTF("\n**********************\n");*/
+#ifdef __MNODE__
+    testFuture = ebbrt::Promise<int>();
+    auto tf3 = testFuture.GetFuture();
+    tf3.Block();
+#endif
+    
+    if (_ttnum > 0)
+	_mix_s_cpu = _ttsum / _ttnum;
+    else {
+	_mix_s_cpu = 0.9;
+    }
+    
+    //FORPRINTF("%d %lf %lf\n", _ttnum, _ttsum, _mix_s_cpu);
 }
 
 void runScale(irtkReconstructionEbb *reconstructor, int start, int end) {
@@ -3277,12 +3399,14 @@ void runScale(irtkReconstructionEbb *reconstructor, int start, int end) {
 }
 
 class ParallelScale {
-  irtkReconstructionEbb *reconstructor;
-  int nt;
+    irtkReconstructionEbb *reconstructor;
+    int nt;
+    int start;
+    int end;
 
 public:
-  ParallelScale(irtkReconstructionEbb *_reconstructor, int _nt)
-      : reconstructor(_reconstructor), nt(_nt) {}
+    ParallelScale(irtkReconstructionEbb *_reconstructor, int _nt, int _start, int _end)
+	: reconstructor(_reconstructor), nt(_nt), start(_start), end(_end) {}
 
   void operator()(const blocked_range<int> &r) const {
     runScale(reconstructor, r.begin(), r.end());
@@ -3291,51 +3415,69 @@ public:
   // execute
   void operator()() const {
     task_scheduler_init init(nt);
-    parallel_for(blocked_range<int>(0, reconstructor->_slices.size()), *this);
+    parallel_for(blocked_range<int>(0, end-start), *this);
     init.terminate();
   }
 };
 
 void irtkReconstructionEbb::Scale() {
 #ifndef __EBBRT_BM__
-  ParallelScale scale(this, _numThreads);
-  scale();
+#ifdef __MNODE__
+    for (int i = 0; i < (int)nids.size(); i++) 
+    {
+       auto buf = MakeUniqueIOBuf(1 * sizeof(int));
+       auto dp = buf->GetMutDataPointer();
+       dp.Get<int>() = 7;
+       FORPRINTF("Scale : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+       SendMessage(nids[i], std::move(buf));
+    }
+    ParallelScale scale(this, _numThreads, _start, _end);
+    scale();
+
+    testFuture = ebbrt::Promise<int>();
+    auto tf = testFuture.GetFuture();
+    tf.Block();
+    
+    FORPRINTF("Scale() : _scale_cpu = %lf\n", sumPartVec(_scale_cpu, _start, _end));
+#else
+    ParallelScale scale(this, _numThreads, 0, _slices.size());
+    scale();
+#endif    
 #else
   size_t ncpus = ebbrt::Cpu::Count();
-  if (ncpus > 1) {
-    static ebbrt::SpinBarrier bar(ncpus);
-    ebbrt::EventManager::EventContext context;
-    std::atomic<size_t> count(0);
-    size_t theCpu = ebbrt::Cpu::GetMine();
-    int diff = this->_diff;
-    for (size_t i = 0; i < ncpus; i++) {
-      // spawn jobs on each core using SpawnRemote
-      ebbrt::event_manager->SpawnRemote(
-          [this, theCpu, ncpus, &count, &context, i, diff]() {
-            // get my cpu id
-            size_t mycpu = ebbrt::Cpu::GetMine();
-            int starte, ende, factor;
-            factor = (int)ceil(diff / (float)ncpus);
-            starte = i * factor;
-            ende = i * factor + factor;
-            ende = (ende > diff) ? diff : ende;
-            runScale(this, starte, ende);
-            count++;
-            bar.Wait();
-            while (count < (size_t)ncpus)
-              ;
-            if (mycpu == theCpu) {
-              ebbrt::event_manager->ActivateContext(std::move(context));
-            }
-          },
-          indexToCPU(
-              i)); // if i don't add indexToCPU, one of the cores never run ? ?
-    }
-    ebbrt::event_manager->SaveContext(context);
-  } else {
-    runScale(this, 0, _slices.size());
+  static ebbrt::SpinBarrier bar(ncpus);
+  ebbrt::EventManager::EventContext context;
+  std::atomic<size_t> count(0);
+  size_t theCpu = ebbrt::Cpu::GetMine();
+  int diff = (_end-_start);
+  for (size_t i = 0; i < ncpus; i++) {
+    // spawn jobs on each core using SpawnRemote
+    ebbrt::event_manager->SpawnRemote(
+    [this, theCpu, ncpus, &count, &context, i, diff]() {
+    // get my cpu id
+    size_t mycpu = ebbrt::Cpu::GetMine();
+    int starte, ende, factor;
+    factor = (int)ceil(diff / (float)ncpus);
+    starte = (i * factor) + _start;
+    ende = (i * factor + factor) + _start;
+    ende = (ende > _end) ? _end : ende;
+    runScale(this, starte, ende);
+    count++;
+    bar.Wait();
+    while (count < (size_t)ncpus)
+	;
+    if (mycpu == theCpu) {
+    ebbrt::event_manager->ActivateContext(std::move(context));
+   }
+   },
+	indexToCPU(
+    i)); // if i don't add indexToCPU, one of the cores never run ? ?
   }
+  ebbrt::event_manager->SaveContext(context);
+
+  FORPRINTF("Scale() : _scale_cpu = %lf\n", sumPartVec(_scale_cpu, _start, _end));
 #endif
+
 }
 
 void irtkReconstructionEbb::Bias() {
@@ -3550,7 +3692,6 @@ void runSuperresolution(irtkReconstructionEbb *reconstructor, int start,
     double scale = reconstructor->_scale_cpu[inputIndex];
 
     // Update reconstructed volume using current slice
-
     // Distribute error to the volume
     POINT3D p;
     for (int i = 0; i < slice.GetX(); i++)
@@ -3580,9 +3721,10 @@ void runSuperresolution(irtkReconstructionEbb *reconstructor, int start,
 }
 
 class ParallelSuperresolution {
-  irtkReconstructionEbb *reconstructor;
-  int nt;
-
+    irtkReconstructionEbb *reconstructor;
+    int nt;
+    int start;
+    int end;
 public:
   irtkRealImage confidence_map;
   irtkRealImage addon;
@@ -3609,8 +3751,8 @@ public:
     confidence_map += y.confidence_map;
   }
 
-  ParallelSuperresolution(irtkReconstructionEbb *reconstructor, int _nt)
-      : reconstructor(reconstructor), nt(_nt) {
+    ParallelSuperresolution(irtkReconstructionEbb *reconstructor, int _nt, int _start, int _end)
+	: reconstructor(reconstructor), nt(_nt), start(_start), end(_end) {
     // Clear addon
     addon.Initialize(reconstructor->_reconstructed.GetImageAttributes());
     addon = 0;
@@ -3624,7 +3766,7 @@ public:
   // execute
   void operator()() {
     task_scheduler_init init(nt);
-    parallel_reduce(blocked_range<int>(0, reconstructor->_slices.size()),
+    parallel_reduce(blocked_range<int>(0, (end-start)),
                     *this);
     init.terminate();
   }
@@ -3635,30 +3777,47 @@ void irtkReconstructionEbb::Superresolution(int iter) {
   int i, j, k;
   irtkRealImage original;
 
-  // FORPRINTF("\n*********** 1 Superresolution ***********\n_reconstructed =
-  // %lf, _reconstructed_temp = %lf\n***************\n", SumRecon(),
-  // sumOneImage(_reconstructed_temp));
-
-  // FORPRINTF("\n*********** 2 Superresolution ***********\n_reconstructed =
-  // %lf, _reconstructed_temp = %lf\n***************\n", SumRecon(),
-  // sumOneImage(_reconstructed_temp));
-
   // Remember current reconstruction for edge-preserving smoothing
   original = _reconstructed;
 
 #ifndef __EBBRT_BM__
-  ParallelSuperresolution parallelSuperresolution(this, _numThreads);
+#ifdef __MNODE__ 
+  for (int i = 0; i < (int)nids.size(); i++) 
+  {
+      auto buf = MakeUniqueIOBuf(2 * sizeof(int));
+      auto dp = buf->GetMutDataPointer();
+      dp.Get<int>() = 8;
+      dp.Get<int>() = iter;
+      FORPRINTF("Superresolution : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+      SendMessage(nids[i], std::move(buf));
+  }
+  
+  ParallelSuperresolution parallelSuperresolution(this, _numThreads, _start, _end);
   parallelSuperresolution();
+
+  testFuture = ebbrt::Promise<int>();
+  auto tf = testFuture.GetFuture();
+  tf.Block();
+
+#else
+  ParallelSuperresolution parallelSuperresolution(this, _numThreads, 0, _slices.size());
+  parallelSuperresolution();
+#endif
 
   _addon = parallelSuperresolution.addon;
   _confidence_map = parallelSuperresolution.confidence_map;
 #else
+
+  if(iter == 1)
+  {
+      _addon.Initialize(_reconstructed.GetImageAttributes());
+      _confidence_map.Initialize(_reconstructed.GetImageAttributes());
+  }
+
   // Clear addon
-  _addon.Initialize(_reconstructed.GetImageAttributes());
   _addon = 0;
 
   // Clear confidence map
-  _confidence_map.Initialize(_reconstructed.GetImageAttributes());
   _confidence_map = 0;
 
   size_t ncpus = ebbrt::Cpu::Count();
@@ -3667,7 +3826,7 @@ void irtkReconstructionEbb::Superresolution(int iter) {
     ebbrt::EventManager::EventContext context;
     std::atomic<size_t> count(0);
     size_t theCpu = ebbrt::Cpu::GetMine();
-    int diff = this->_diff;
+    int diff = (_end-_start);;
     for (size_t i = 0; i < ncpus; i++) {
       // spawn jobs on each core using SpawnRemote
       ebbrt::event_manager->SpawnRemote(
@@ -3676,9 +3835,9 @@ void irtkReconstructionEbb::Superresolution(int iter) {
             size_t mycpu = ebbrt::Cpu::GetMine();
             int starte, ende, factor;
             factor = (int)ceil(diff / (float)ncpus);
-            starte = i * factor;
-            ende = i * factor + factor;
-            ende = (ende > diff) ? diff : ende;
+            starte = (i * factor) + _start;
+            ende = (i * factor + factor) + _start;
+            ende = (ende > _end) ? _end : ende;
 
             irtkRealImage maddon, m_confidence_map;
             maddon.Initialize(_reconstructed.GetImageAttributes());
@@ -3707,21 +3866,14 @@ void irtkReconstructionEbb::Superresolution(int iter) {
               i)); // if i don't add indexToCPU, one of the cores never run ? ?
     }
     ebbrt::event_manager->SaveContext(context);
-
-    // ebbrt::EventManager::EventContext context2;
-    // std::ostringstream ofs;
-    // boost::archive::text_oarchive oa(ofs);
-    // oa &_addon &_confidence_map;
-    // std::string ts = "B " + ofs.str();
-    // Print(nids[0], ts.c_str());
-    // emec2 = &context2;
-    // ebbrt::event_manager->SaveContext(*emec2);
-
   } else {
     runSuperresolution(this, 0, _slices.size(), _addon, _confidence_map);
   }
 #endif
 
+  FORPRINTF("_addon = %lf, __confidence_map = %lf\n", _addon.Sum(), _confidence_map.Sum());
+  return;
+  
   if (!_adaptive)
     for (i = 0; i < _addon.GetX(); i++)
       for (j = 0; j < _addon.GetY(); j++)
@@ -4736,15 +4888,9 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
     timers[INITIALIZEEMVALUES] += tempTime;
     sumCompute += tempTime;
 
-    // #ifdef __EBBRT_BM__
-    //     Print(nids[0], "S InitializeEMValues()");
-    // #endif
-
     /*if (iter == 0) {
       InitVoxelStruct();
       }*/
-
-    // need to synchronize _reconstructed
 
     // Calculate matrix of transformation between voxels of slices and volume
     gettimeofday(&lstart, NULL);
@@ -4755,12 +4901,6 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
     timers[COEFFINIT] += tempTime;
     sumCompute += tempTime;
 
-    // need to disperse _reconstructed
-
-    // #ifdef __EBBRT_BM__
-    //     Print(nids[0], "S CoeffInit()");
-    // #endif
-
     // Initialize reconstructed image with Gaussian weighted reconstruction
     gettimeofday(&lstart, NULL);
     GaussianReconstruction();
@@ -4770,10 +4910,6 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
     timers[GAUSSIANRECONSTRUCTION] += tempTime;
     sumCompute += tempTime;
 
-    // #ifdef __EBBRT_BM__
-    //     Print(nids[0], "S GaussianReconstruction()");
-    // #endif
-
     // Simulate slices (needs to be done after Gaussian reconstruction)
     gettimeofday(&lstart, NULL);
     SimulateSlices();
@@ -4782,11 +4918,6 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
                ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
     timers[SIMULATESLICES] += tempTime;
     sumCompute += tempTime;
-    goto done;
-    
-    // #ifdef __EBBRT_BM__
-    //     Print(nids[0], "S SimulateSlices()");
-    // #endif
 
     gettimeofday(&lstart, NULL);
     InitializeRobustStatistics();
@@ -4795,12 +4926,7 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
                ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
     timers[INITIALIZEROBUSTSTATISTICS] += tempTime;
     sumCompute += tempTime;
-    FORPRINTF("InitializeRobustStatistics()\n");
-
-    // #ifdef __EBBRT_BM__
-    //     Print(nids[0], "S InitializeRobustStatistics()");
-    // #endif
-
+    
     gettimeofday(&lstart, NULL);
     EStep();
     gettimeofday(&lend, NULL);
@@ -4808,11 +4934,7 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
                ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
     timers[ESTEP] += tempTime;
     sumCompute += tempTime;
-
-    // #ifdef __EBBRT_BM__
-    //     Print(nids[0], "S EStep");
-    // #endif
-
+    
     // number of reconstruction iterations
     if (iter == (iterations - 1)) {
       rec_iterations = rec_iterations_last;
@@ -4844,7 +4966,8 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
                  ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
       timers[SUPERRESOLUTION] += tempTime;
       sumCompute += tempTime;
-
+      goto done;
+      
       // Simulate slices (needs to be done
       // after the update of the reconstructed volume)
       gettimeofday(&lstart, NULL);
@@ -4975,18 +5098,6 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
 	  DeserializeTransformations(dp, _transformations[i]);
       }
 
-      // flag to swich the intensity matching on and off
-      /*bool useCPU = true;
-      bool disableBiasCorr = true;
-      int rec_iterations_first = 4;
-      int rec_iterations_last = 13;
-      double delta = 150;
-      double lastIterLambda = 0.01;
-      bool intensity_matching = true;
-      double lambda = 0.02;
-      int levels = 3;
-      int rec_iterations = 1;*/
-
       _global_bias_correction = false;
       _step = 0.0001;
       _quality_factor = 2;
@@ -5040,12 +5151,152 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       int reconSize = dp.Get<int>();
       dp.Get(reconSize*sizeof(double), _reconstructed.GetMat());
       
+      FORPRINTF("a\n");
       SimulateSlices();
-      
+      FORPRINTF("b\n");
+	    
       // sending
       auto retbuf = MakeUniqueIOBuf(1 * sizeof(int));
       auto retdp = retbuf->GetMutDataPointer();
       retdp.Get<int>() = ret;
+      SendMessage(nids[0], std::move(retbuf));
+  }
+  else if(ret == 3)
+  {
+      InitializeRobustStatistics();
+  }
+  else if(ret == 4)
+  {
+      _sigma_cpu = dp.Get<double>();
+      _sigma_s_cpu = 0.025;
+      _mix_cpu = 0.9;
+      _mix_s_cpu = 0.9;
+      _m_cpu = 1 / (2.1 * _max_intensity - 1.9 * _min_intensity);
+      
+      int tmp = dp.Get<int>();
+      _small_slices.resize(tmp);
+      dp.Get(tmp*sizeof(int), _small_slices.data());
+      
+      EStep();
+  }
+  else if (ret == 5)
+  {
+      _mean_s_cpu = dp.Get<double>();
+      _mean_s2_cpu = dp.Get<double>();
+      
+      _ttsum = 0;
+      _ttden = 0;
+      _ttsum2 = 0;
+      _ttden2 = 0;
+
+      for (int inputIndex = _start; inputIndex < _end; inputIndex++)
+      {
+	  if (slice_potential[inputIndex] >= 0) 
+	  {
+	      _ttsum += (slice_potential[inputIndex] - _mean_s_cpu) *
+		  (slice_potential[inputIndex] - _mean_s_cpu) *
+		  _slice_weight_cpu[inputIndex];
+	  
+	      _ttden += _slice_weight_cpu[inputIndex];
+	  
+	      _ttsum2 += (slice_potential[inputIndex] - _mean_s2_cpu) *
+		  (slice_potential[inputIndex] - _mean_s2_cpu) *
+		  (1 - _slice_weight_cpu[inputIndex]);
+	  
+	      _ttden2 += (1 - _slice_weight_cpu[inputIndex]);
+	  }
+      }
+
+      // sending
+      auto retbuf = MakeUniqueIOBuf((1*sizeof(int)) + (4 * sizeof(double)));
+      auto retdp = retbuf->GetMutDataPointer();
+      retdp.Get<int>() = 5;
+      retdp.Get<double>() = _ttsum;
+      retdp.Get<double>() = _ttden;
+      retdp.Get<double>() = _ttsum2;
+      retdp.Get<double>() = _ttden2;
+      SendMessage(nids[0], std::move(retbuf));
+
+  }
+  else if(ret == 6)
+  {
+      _sigma_s_cpu = dp.Get<double>();
+      _sigma_s2_cpu = dp.Get<double>();
+      
+      _ttsum = 0;
+      _ttnum = 0;
+      double gs1, gs2;
+      
+      for (int inputIndex = _start; inputIndex < _end; inputIndex++) {
+	  // Slice does not have any voxels in volumetric ROI
+	  if (slice_potential[inputIndex] == -1) {
+	      _slice_weight_cpu[inputIndex] = 0;
+	      continue;
+	  }
+
+	  // All slices are outliers or the means are not valid
+	  if ((_ttden <= 0) || (_mean_s2_cpu <= _mean_s_cpu)) {
+	      _slice_weight_cpu[inputIndex] = 1;
+	      continue;
+	  }
+
+	  // likelihood for inliers
+	  if (slice_potential[inputIndex] < _mean_s2_cpu)
+	      gs1 = G(slice_potential[inputIndex] - _mean_s_cpu, _sigma_s_cpu);
+	  else
+	      gs1 = 0;
+
+	  // likelihood for outliers
+	  if (slice_potential[inputIndex] > _mean_s_cpu)
+	      gs2 = G(slice_potential[inputIndex] - _mean_s2_cpu, _sigma_s2_cpu);
+	  else
+	      gs2 = 0;
+
+	  // calculate slice weight
+	  double likelihood = gs1 * _mix_s_cpu + gs2 * (1 - _mix_s_cpu);
+	  if (likelihood > 0)
+	      _slice_weight_cpu[inputIndex] = gs1 * _mix_s_cpu / likelihood;
+	  else {
+	      if (slice_potential[inputIndex] <= _mean_s_cpu)
+		  _slice_weight_cpu[inputIndex] = 1;
+	      if (slice_potential[inputIndex] >= _mean_s2_cpu)
+		  _slice_weight_cpu[inputIndex] = 0;
+	      if ((slice_potential[inputIndex] < _mean_s2_cpu) &&
+		  (slice_potential[inputIndex] > _mean_s_cpu)) // should not happen
+		  _slice_weight_cpu[inputIndex] = 1;
+	  }
+
+	  if (slice_potential[inputIndex] >= 0) {
+	      _ttsum += _slice_weight_cpu[inputIndex];
+	      _ttnum ++;
+	  }
+      }
+      
+      // sending
+      auto retbuf = MakeUniqueIOBuf((2*sizeof(int)) + (1 * sizeof(double)));
+      auto retdp = retbuf->GetMutDataPointer();
+      retdp.Get<int>() = 6;
+      retdp.Get<double>() = _ttsum;
+      retdp.Get<int>() = _ttnum;
+      SendMessage(nids[0], std::move(retbuf));
+  }
+  else if(ret == 7)
+  {
+      Scale();
+      
+      auto retbuf = MakeUniqueIOBuf(1*sizeof(int));
+      auto retdp = retbuf->GetMutDataPointer();
+      retdp.Get<int>() = 7;
+      SendMessage(nids[0], std::move(retbuf));
+  }
+  else if(ret == 8)
+  {
+      int ite = dp.Get<int>();
+      Superresolution(ite);
+
+      auto retbuf = MakeUniqueIOBuf(1*sizeof(int));
+      auto retdp = retbuf->GetMutDataPointer();
+      retdp.Get<int>() = 8;
       SendMessage(nids[0], std::move(retbuf));
   }
   else 
@@ -5094,6 +5345,94 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       }
   }
   else if(ret == 2)
+  {
+      reconRecv++;
+      if (reconRecv == numNodes) 
+      {
+	  reconRecv = 0;
+	  testFuture.SetValue(1);
+      }
+  }
+  else if(ret == 3)
+  {
+      int num = dp.Get<int>();
+      double sigma = dp.Get<double>();
+      
+      _tsigma += sigma;
+      _tnum += num;
+      
+      reconRecv++;
+      if (reconRecv == numNodes) 
+      {
+	  reconRecv = 0;
+	  testFuture.SetValue(1);
+      }
+  }
+  else if(ret == 4)
+  {
+      double tmp;
+
+      tmp = dp.Get<double>();
+      _tsum += tmp;
+
+      tmp = dp.Get<double>();
+      _tden += tmp;
+
+      tmp = dp.Get<double>();
+      _tsum2 += tmp;
+      
+      tmp = dp.Get<double>();
+      _tden2 += tmp;
+
+      tmp = dp.Get<double>();
+      if(tmp > _tmaxs) _tmaxs = tmp;
+      
+      tmp = dp.Get<double>();
+      if(tmp < _tmins) _tmins = tmp;
+
+      reconRecv++;
+      if (reconRecv == numNodes) 
+      {
+	  reconRecv = 0;
+	  testFuture.SetValue(1);
+      }
+  }
+  else if (ret == 5)
+  {
+      _ttsum += dp.Get<double>();
+      _ttden += dp.Get<double>();
+      _ttsum2 += dp.Get<double>();
+      _ttden2 += dp.Get<double>();
+      
+      reconRecv++;
+      if (reconRecv == numNodes) 
+      {
+	  reconRecv = 0;
+	  testFuture.SetValue(1);
+      }
+  }
+  else if (ret == 6)
+  {
+      _ttsum += dp.Get<double>();
+      _ttnum += dp.Get<int>();
+
+      reconRecv++;
+      if (reconRecv == numNodes) 
+      {
+	  reconRecv = 0;
+	  testFuture.SetValue(1);
+      }
+  }
+  else if (ret == 7)
+  {
+      reconRecv++;
+      if (reconRecv == numNodes) 
+      {
+	  reconRecv = 0;
+	  testFuture.SetValue(1);
+      }
+  }
+  else if (ret == 8)
   {
       reconRecv++;
       if (reconRecv == numNodes) 

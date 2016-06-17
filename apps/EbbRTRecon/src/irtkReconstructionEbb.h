@@ -93,9 +93,11 @@ public:
   vector<irtkRealImage> _slices_resampled;
   int _numThreads;
   int _start, _end, _diff, _slices_size, _stack_factor_size;
-  int reconRecv;
-  double tmin, tmax, tsigma, tmix, tnum;
-
+  int reconRecv, _tnum, _ttnum;
+  double tmin, tmax, _tsigma, tmix;
+  double _tsum, _tden, _tsum2, _tden2, _tmaxs, _tmins;
+  double _ttsum, _ttsum2, _ttden, _ttden2;
+  
   /// Transformations
   vector<irtkRigidTransformation> _transformations_gpu;
   /// Indicator whether slice has an overlap with volumetric mask
