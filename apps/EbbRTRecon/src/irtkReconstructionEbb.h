@@ -97,7 +97,8 @@ public:
   double tmin, tmax, _tsigma, tmix;
   double _tsum, _tden, _tsum2, _tden2, _tmaxs, _tmins;
   double _ttsum, _ttsum2, _ttden, _ttden2;
-  
+  double _msigma, _mmix, _mnum, _mmin, _mmax;
+      
   /// Transformations
   vector<irtkRigidTransformation> _transformations_gpu;
   /// Indicator whether slice has an overlap with volumetric mask
@@ -502,7 +503,7 @@ public:
   ///To compare how simulation from the reconstructed volume matches the original stacks
   void SimulateStacks(vector<irtkRealImage>& stacks);
 
-  void SimulateSlices();
+  void SimulateSlices(bool);
 
   ///Puts origin of the image into origin of world coordinates
   static void ResetOrigin(irtkGreyImage &image,
