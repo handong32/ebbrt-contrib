@@ -378,6 +378,14 @@ double sumVec(std::vector<double> b) {
   return sum;
 }
 
+float sumFVec(std::vector<float> b) {
+  float sum = 0.0;
+  for (int i = 0; i < b.size(); i++) {
+    sum += b[i];
+  }
+  return sum;
+}
+
 int sumBool(std::vector<bool> b) {
   int sum = 0;
   for (int i = 0; i < b.size(); i++) {
@@ -1299,27 +1307,79 @@ void irtkReconstructionEbb::RestoreSliceIntensities() {
   int i;
   double factor;
   irtkRealPixel *p;
-  
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
-    // calculate scaling factor
-    factor = _stack_factor[_stack_index[inputIndex]]; //_average_value;
-    // std::printf(" %f ", factor);
-    // read the pointer to current slice
-    p = _slices[inputIndex].GetPointerToVoxels();
-    for (i = 0; i < _slices[inputIndex].GetNumberOfVoxels(); i++) {
-      if (*p > 0)
-        *p = *p / factor;
-      p++;
-    }
+
+#ifndef _EBBRT_BM__
+#ifdef __MNODE__
+  for (int i = 0; i < (int)nids.size(); i++) 
+  {
+      auto buf = MakeUniqueIOBuf(1 * sizeof(int));
+      auto dp = buf->GetMutDataPointer();
+      dp.Get<int>() = 11;
+      FORPRINTF("RestoreSliceIntensities : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+      SendMessage(nids[i], std::move(buf));
   }
+#endif
+#endif
+
+  //FORPRINTF("sumPartImage: %lf\n", sumPartImage(_slices, _start, _end));
+  
+#ifndef __MNODE__
+  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
+#else
+  for (inputIndex = _start; inputIndex < _end; inputIndex++)
+#endif
+  {
+      // calculate scaling factor
+      factor = _stack_factor[_stack_index[inputIndex]]; //_average_value;
+      // read the pointer to current slice
+      p = _slices[inputIndex].GetPointerToVoxels();
+      for (i = 0; i < _slices[inputIndex].GetNumberOfVoxels(); i++)
+      {
+	  if (*p > 0)
+	      *p = *p / factor;
+	  p++;
+      }
+  }
+
+  //FORPRINTF("sumPartImage: %lf\n", sumPartImage(_slices, _start, _end));
+#ifndef __EBBRT_BM__
+#ifdef __MNODE__
+  testFuture = ebbrt::Promise<int>();
+  auto tf = testFuture.GetFuture();
+  tf.Block();
+#endif
+#endif
+  
 }
 
 void irtkReconstructionEbb::ScaleVolume() {
   unsigned int inputIndex;
   int i, j;
-  double scalenum = 0, scaleden = 0;
+  _sscalenum = 0;
+  _sscaleden = 0;
 
-  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++) {
+#ifndef __EBBRT_BM__
+#ifdef __MNODE__
+  for (int i = 0; i < (int)nids.size(); i++) 
+  {
+      auto buf = MakeUniqueIOBuf(1 * sizeof(int));
+      auto dp = buf->GetMutDataPointer();
+      dp.Get<int>() = 12;
+      FORPRINTF("ScaleVolume : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
+      SendMessage(nids[i], std::move(buf));
+  }
+#endif
+#endif
+
+  //FORPRINTF("_weights = %lf\n_slices = %lf\n_simulated_slices = %lf\n_slice_weight_cpu = %lf\n", sumPartImage(_weights, _start, _end), sumPartImage(_slices, _start, _end), sumPartImage(_simulated_slices, _start, _end), sumPartVec(_slice_weight_cpu, _start, _end) );
+
+  
+#ifndef __MNODE__
+  for (inputIndex = 0; inputIndex < _slices.size(); inputIndex++)
+#else
+  for (inputIndex = _start; inputIndex < _end; inputIndex++)
+#endif
+  {
     // alias for the current slice
     irtkRealImage &slice = _slices[inputIndex];
 
@@ -1333,18 +1393,34 @@ void irtkReconstructionEbb::ScaleVolume() {
       for (j = 0; j < slice.GetY(); j++)
         if (slice(i, j, 0) != -1) {
           // scale - intensity matching
-          if (_simulated_weights[inputIndex](i, j, 0) > 0.99) {
-            scalenum += w(i, j, 0) * _slice_weight_cpu[inputIndex] *
+          if (_simulated_weights[inputIndex](i, j, 0) > 0.99)
+	  {
+            _sscalenum += w(i, j, 0) * _slice_weight_cpu[inputIndex] *
                         slice(i, j, 0) * sim(i, j, 0);
-            scaleden += w(i, j, 0) * _slice_weight_cpu[inputIndex] *
+            _sscaleden += w(i, j, 0) * _slice_weight_cpu[inputIndex] *
                         sim(i, j, 0) * sim(i, j, 0);
           }
         }
   } // end of loop for a slice inputIndex
 
-  // calculate scale for the volume
-  double scale = scalenum / scaleden;
+  //FORPRINTF("_sscalenum = %lf, _sscaleden = %lf\n", _sscalenum, _sscaleden);
+    
+#ifdef __EBBRT_BM__
+  return;
+#endif
 
+#ifndef __EBBRT_BM__
+#ifdef __MNODE__
+  gaussianreconFuture = ebbrt::Promise<int>();
+  auto tf = gaussianreconFuture.GetFuture();
+  tf.Block();
+#endif
+#endif
+  
+  // calculate scale for the volume
+  double scale = _sscalenum / _sscaleden;
+  //FORPRINTF("scale = %lf, recon = %lf\n", scale, _reconstructed.Sum());
+  
   irtkRealPixel *ptr = _reconstructed.GetPointerToVoxels();
   for (i = 0; i < _reconstructed.GetNumberOfVoxels(); i++) {
     if (*ptr > 0)
@@ -2515,16 +2591,29 @@ void irtkReconstructionEbb::CoeffInit() {
       int end = (i+1) * factor + factor;
       end = (end > diff) ? diff : end;
 
-      auto buf = MakeUniqueIOBuf(3 * sizeof(int));
+      auto buf = MakeUniqueIOBuf(5 * sizeof(int));
       auto dp = buf->GetMutDataPointer();
       dp.Get<int>() = 0;
       dp.Get<int>() = start;
       dp.Get<int>() = end;
+      dp.Get<int>() = _stack_factor.size();
+      dp.Get<int>() = _stack_index.size();
+
+      auto sf = std::make_unique<StaticIOBuf>(
+	  reinterpret_cast<const uint8_t *>(_stack_factor.data()),
+	  (size_t)(_stack_factor.size() * sizeof(float)));
       
+      auto si = std::make_unique<StaticIOBuf>(
+	  reinterpret_cast<const uint8_t *>(_stack_index.data()),
+	  (size_t)(_stack_index.size() * sizeof(int)));
+      	  
       buf->PrependChain(std::move(SerializeSlices()));
       buf->PrependChain(std::move(SerializeReconstructed()));
       buf->PrependChain(std::move(SerializeMask()));
       buf->PrependChain(std::move(SerializeTransformations()));
+      buf->PrependChain(std::move(sf));
+      buf->PrependChain(std::move(si));
+      
       
       FORPRINTF("CoeffInit : Sending %d bytes\n", (int)buf->ComputeChainDataLength());
       SendMessage(nids[i], std::move(buf));
@@ -3417,6 +3506,7 @@ public:
 };
 
 void irtkReconstructionEbb::Scale() {
+    FORPRINTF("In Scale()\n");
 #ifndef __EBBRT_BM__
 #ifdef __MNODE__
     for (int i = 0; i < (int)nids.size(); i++) 
@@ -3434,7 +3524,7 @@ void irtkReconstructionEbb::Scale() {
     auto tf = testFuture.GetFuture();
     tf.Block();
     
-    //FORPRINTF("Scale() : _scale_cpu = %lf\n", sumPartVec(_scale_cpu, _start, _end));
+    FORPRINTF("Scale() : _scale_cpu = %lf\n", sumPartVec(_scale_cpu, _start, _end));
 #else
     ParallelScale scale(this, _numThreads, 0, _slices.size());
     scale();
@@ -3472,7 +3562,8 @@ void irtkReconstructionEbb::Scale() {
   }
   ebbrt::event_manager->SaveContext(context);
 
-  //FORPRINTF("Scale() : _scale_cpu = %lf\n", sumPartVec(_scale_cpu, _start, _end));
+  FORPRINTF("Scale() : _scale_cpu = %lf\n", sumPartVec(_scale_cpu, _start, _end));
+  return;
 #endif
 
 }
@@ -4858,6 +4949,7 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
 
   gettimeofday(&tstart, NULL);
 
+  //FORPRINTF("restoresliceintensities = %lf %d\n", sumFVec(_stack_factor), sumInt(_stack_index));
   for (int iter = 0; iter < iterations; iter++) {
     // perform slice-to-volume registrations - skip the first iteration
     if (iter > 0) {
@@ -4911,7 +5003,8 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
                ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
     timers[COEFFINIT] += tempTime;
     sumCompute += tempTime;
-
+    //goto done;
+    
     // Initialize reconstructed image with Gaussian weighted reconstruction
     gettimeofday(&lstart, NULL);
     GaussianReconstruction();
@@ -5015,15 +5108,14 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
                ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
     timers[MASKVOLUME] += tempTime;
     sumCompute += tempTime;
-    //goto done;
     
-    gettimeofday(&lstart, NULL);
+    /*gettimeofday(&lstart, NULL);
     Evaluate(iter);
     gettimeofday(&lend, NULL);
     tempTime = (lend.tv_sec - lstart.tv_sec) +
                ((lend.tv_usec - lstart.tv_usec) / 1000000.0);
     timers[EVALUATE] += tempTime;
-    sumCompute += tempTime;
+    sumCompute += tempTime;*/
   } // end of interleaved registration-reconstruction iterations
 
   gettimeofday(&lstart, NULL);
@@ -5051,7 +5143,7 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
   FORPRINTF("Superresolution: %lf seconds\n", timers[SUPERRESOLUTION]);
   FORPRINTF("MStep: %lf seconds\n", timers[MSTEP]);
   FORPRINTF("MaskVolume: %lf seconds\n", timers[MASKVOLUME]);
-  FORPRINTF("Evaluate: %lf seconds\n", timers[EVALUATE]);
+  //FORPRINTF("Evaluate: %lf seconds\n", timers[EVALUATE]);
   FORPRINTF("RestoreSliceIntensities and ScaleVolume: %lf seconds\n",
             timers[RESTORESLICE]);
 
@@ -5076,10 +5168,10 @@ done:
 
 void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
                                            std::unique_ptr<IOBuf> &&buffer) {
-  FORPRINTF("Received %d bytes\n", (int)buffer->ComputeChainDataLength());
   auto dp = buffer->GetDataPointer();
   auto ret = dp.Get<int>();
-
+  FORPRINTF("Received %d bytes, %d\n", (int)buffer->ComputeChainDataLength(), ret);
+  
 // backend
 #ifdef __EBBRT_BM__
   if (ret == 0) 
@@ -5089,6 +5181,9 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       
       _start = dp.Get<int>();
       _end = dp.Get<int>();
+
+      int sfs = dp.Get<int>();
+      int sis = dp.Get<int>();
       
       auto nslices = dp.Get<int>();
       _slices.resize(nslices);
@@ -5110,7 +5205,13 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       {
 	  DeserializeTransformations(dp, _transformations[i]);
       }
-
+      
+      _stack_factor.resize(sfs);
+      dp.Get(sfs*sizeof(float), _stack_factor.data());
+      
+      _stack_index.resize(sis);
+      dp.Get(sis*sizeof(int), _stack_index.data());
+      
       _global_bias_correction = false;
       _step = 0.0001;
       _quality_factor = 2;
@@ -5136,7 +5237,8 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
 
       InitializeEM();
       InitializeEMValues();
-      CoeffInit();      
+      CoeffInit();
+      
       // sending
       auto retbuf = MakeUniqueIOBuf(1 * sizeof(int));
       auto retdp = retbuf->GetMutDataPointer();
@@ -5293,6 +5395,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
   }
   else if(ret == 7)
   {
+      
       Scale();
       
       auto retbuf = MakeUniqueIOBuf(1*sizeof(int));
@@ -5341,6 +5444,26 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       retdp.Get<double>() = _mmax;
 
       FORPRINTF("MStep : Sending %d bytes\n", (int)retbuf->ComputeChainDataLength());
+      SendMessage(nids[0], std::move(retbuf));
+  }
+  else if(ret == 11)
+  {
+      RestoreSliceIntensities();
+      auto retbuf = MakeUniqueIOBuf((1 * sizeof(int)));
+      auto retdp = retbuf->GetMutDataPointer();
+      retdp.Get<int>() = ret;
+      SendMessage(nids[0], std::move(retbuf));
+  }
+  else if(ret == 12)
+  {
+      ScaleVolume();
+      
+      auto retbuf = MakeUniqueIOBuf((1 * sizeof(int)) + (2 * sizeof(double)));
+      auto retdp = retbuf->GetMutDataPointer();
+      retdp.Get<int>() = ret;
+      retdp.Get<double>() = _sscalenum;
+      retdp.Get<double>() = _sscaleden;
+      
       SendMessage(nids[0], std::move(retbuf));
   }
   else 
@@ -5510,6 +5633,32 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       {
 	  reconRecv = 0;
 	  testFuture.SetValue(1);
+      }
+  }
+  else if(ret == 11)
+  {
+      reconRecv++;
+      if (reconRecv == numNodes) 
+      {
+	  reconRecv = 0;
+	  testFuture.SetValue(1);
+      }
+  }
+  else if(ret == 12)
+  {
+      double ssn = dp.Get<double>();
+      double ssd = dp.Get<double>();
+
+      FORPRINTF("%lf %lf %lf %lf\n", _sscalenum, _sscaleden, ssn, ssd);
+
+      _sscalenum += ssn;
+      _sscaleden += ssd;
+      
+      reconRecv++;
+      if (reconRecv == numNodes) 
+      {
+	  reconRecv = 0;
+	  gaussianreconFuture.SetValue(1);
       }
   }
   else 

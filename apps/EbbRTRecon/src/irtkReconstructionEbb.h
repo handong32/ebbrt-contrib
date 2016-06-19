@@ -98,7 +98,8 @@ public:
   double _tsum, _tden, _tsum2, _tden2, _tmaxs, _tmins;
   double _ttsum, _ttsum2, _ttden, _ttden2;
   double _msigma, _mmix, _mnum, _mmin, _mmax;
-      
+  double _sscalenum, _sscaleden;
+  
   /// Transformations
   vector<irtkRigidTransformation> _transformations_gpu;
   /// Indicator whether slice has an overlap with volumetric mask
