@@ -370,7 +370,7 @@ public:
   void InitVoxelStruct();
   
   ///Calculate transformation matrix between slices and voxels
-  void CoeffInit();
+  void CoeffInit(int);
 
   ///Reconstruction using weighted Gaussian PSF
   void GaussianReconstruction();
