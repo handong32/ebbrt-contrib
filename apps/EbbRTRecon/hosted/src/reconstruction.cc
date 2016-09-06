@@ -573,17 +573,17 @@ int main(int argc, char **argv) {
 //  useCPU, disableBiasCorr, sigma, global_bias_correction, lastIterLambda,
 //  iterations, levels);
 
-//#ifndef __EBB__
-
-  //  std::printf("runRecon\n");
-  /*reconstruction->RunRecon(iterations, delta, lastIterLambda,
-                           rec_iterations_first, rec_iterations_last,
-                           intensity_matching, lambda, levels);
-  */
-//#else
+#ifndef __MNODE__
+  reconstruction->SendRecon(iterations);
+  gettimeofday(&totend, NULL);
+  std::printf("total time: %lf seconds\n",
+              (totend.tv_sec - totstart.tv_sec) +
+	      ((totend.tv_usec - totstart.tv_usec) / 1000000.0));
+  
+#else
 
   
-  int numNodes = 1;
+  int numNodes = 2;
   reconstruction->setNumNodes(numNodes);
   
   auto bindir = boost::filesystem::system_complete(argv[0]).parent_path() /
@@ -591,7 +591,7 @@ int main(int argc, char **argv) {
 
   for (i = 0; i < numNodes; i++) {
     auto node_desc =
-        node_allocator->AllocateNode(bindir.string(), numThreads, 1, 2);
+        node_allocator->AllocateNode(bindir.string(), numThreads, 1, 16);
     node_desc.NetworkId().Then(
         [reconstruction, &c](Future<Messenger::NetworkId> f) {
           // pass context c
@@ -616,19 +616,14 @@ int main(int argc, char **argv) {
   
   c.Run();
   
-  
-  printf("EBBRT ends\n");
-  
-//#endif
-  //Runtime runtime2;
-  //Context c2(runtime2);
-  //ContextActivation activation2(c2);
-  
-  			   
   gettimeofday(&totend, NULL);
   std::printf("total time: %lf seconds\n",
               (totend.tv_sec - totstart.tv_sec) +
 	      ((totend.tv_usec - totstart.tv_usec) / 1000000.0));
+  printf("EBBRT ends\n");
+#endif  
+  			   
+
 }
 
 #pragma GCC diagnostic pop

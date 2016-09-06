@@ -99,6 +99,7 @@ public:
   double _ttsum, _ttsum2, _ttden, _ttden2;
   double _msigma, _mmix, _mnum, _mmin, _mmax;
   double _sscalenum, _sscaleden;
+  size_t bytesTotal;
   
   /// Transformations
   vector<irtkRigidTransformation> _transformations_gpu;
@@ -541,6 +542,7 @@ public:
   static void ResetOrigin(irtkRealImage &image, irtkRigidTransformation& transformation);
 
   void PrepareRegistrationSlices();
+  //friend class ParallelEStep;
   //friend class ParallelAverage;
   //friend class ParallelSimulateSlices;
   //friend class ParallelStackRegistrations;
@@ -641,14 +643,14 @@ inline void irtkReconstructionEbb::SetForceExcludedSlices(vector<int>& force_exc
 }
 
 inline double irtkReconstructionEbb::SumRecon() {
-  double sum = 0.0;
+  float sum = 0.0;
   irtkRealPixel *ap = _reconstructed.GetPointerToVoxels();
 
   for (int j = 0; j < _reconstructed.GetNumberOfVoxels(); j++) {
-      sum += (double)*ap;
+      sum += (float)*ap;
     ap++;
   }
-  return sum;
+  return (double)sum;
 }
 
 #endif
