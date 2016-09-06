@@ -680,19 +680,19 @@ void irtkReconstructionEbb::DeserializeSlice(ebbrt::IOBuf::DataPointer& dp, irtk
     auto cols = dp.Get<int>();
     //auto ptr = new double[rows * cols];
     auto ptr = std::make_unique<double[]>(rows * cols);
-    dp.Get(rows * cols * sizeof(double), ptr.get());
+    dp.Get(rows * cols * sizeof(double), (uint8_t*)ptr.get());
     irtkMatrix matI2W(rows, cols, std::move(ptr));
 	
     rows = dp.Get<int>();
     cols = dp.Get<int>();
     //ptr = new double[rows * cols];
     ptr = std::make_unique<double[]>(rows * cols);
-    dp.Get(rows * cols * sizeof(double), ptr.get());
+    dp.Get(rows * cols * sizeof(double), (uint8_t*)ptr.get());
     irtkMatrix matW2I(rows, cols, std::move(ptr));
 	
     auto n = dp.Get<int>();
     auto ptr2 = new double[n];
-    dp.Get(n*sizeof(double), ptr2);
+    dp.Get(n*sizeof(double), (uint8_t*)ptr2);
 	
     irtkRealImage ri(at, ptr2, matI2W, matW2I);
 
@@ -727,7 +727,7 @@ void irtkReconstructionEbb::DeserializeTransformations(ebbrt::IOBuf::DataPointer
 	auto rows = dp.Get<int>();
 	auto cols = dp.Get<int>();
 	auto ptr = std::make_unique<double[]>(rows * cols);
-	dp.Get(rows * cols * sizeof(double), ptr.get());
+	dp.Get(rows * cols * sizeof(double), (uint8_t*)ptr.get());
 	irtkMatrix mat(rows, cols, std::move(ptr));
 	
 	//FORPRINTF("%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %d %d %d %d %d %d %d %d %lf\n", tx, ty, tz, rx, ry, rz, cosrx, cosry, cosrz, sinx, siny, sinz, status0, status1, status2, status3, status4, status5, rows, cols, mat.Sum());
@@ -5363,10 +5363,10 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       }
 
       _stack_factor.resize(sfs);
-      dp.Get(sfs*sizeof(float), _stack_factor.data());
+      dp.Get(sfs*sizeof(float), (uint8_t*)_stack_factor.data());
       
       _stack_index.resize(sis);
-      dp.Get(sis*sizeof(int), _stack_index.data());
+      dp.Get(sis*sizeof(int), (uint8_t*)_stack_index.data());
       
       _global_bias_correction = false;
       _step = 0.0001;
@@ -5416,7 +5416,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       }
 
       int reconSize = dp.Get<int>();
-      dp.Get(reconSize*sizeof(double), _reconstructed.GetMat());
+      dp.Get(reconSize*sizeof(double), (uint8_t*)_reconstructed.GetMat());
       
       SimulateSlices(false);
 	    
@@ -5440,7 +5440,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       
       int tmp = dp.Get<int>();
       _small_slices.resize(tmp);
-      dp.Get(tmp*sizeof(int), _small_slices.data());
+      dp.Get(tmp*sizeof(int), (uint8_t*)_small_slices.data());
       
       EStep();
   }
@@ -5570,7 +5570,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
   else if(ret == 9)
   {
       int reconSize = dp.Get<int>();
-      dp.Get(reconSize*sizeof(double), _reconstructed.GetMat());
+      dp.Get(reconSize*sizeof(double), (uint8_t*)_reconstructed.GetMat());
       SimulateSlices(true);
 
       // sending
@@ -5620,7 +5620,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
   else if(ret == 13)
   {
       int reconSize = dp.Get<int>();
-      dp.Get(reconSize*sizeof(double), _reconstructed.GetMat());
+      dp.Get(reconSize*sizeof(double), (uint8_t*)_reconstructed.GetMat());
       
       SliceToVolumeRegistration();
 
@@ -5675,7 +5675,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
 	  auto rows = dp.Get<int>();
 	  auto cols = dp.Get<int>();
 	  
-	  dp.Get(rows*cols*sizeof(double), _transformations[i]._matrix.GetMatrix());
+	  dp.Get(rows*cols*sizeof(double), (uint8_t*)_transformations[i]._matrix.GetMatrix());
       }
 
       InitializeEMValues();
@@ -5713,7 +5713,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
 	  gaussreconptr = (int*) malloc((_end-_start)*sizeof(int));
       }
       
-      dp.Get((end-start)*sizeof(int), gaussreconptr);
+      dp.Get((end-start)*sizeof(int), (uint8_t*)gaussreconptr);
       memcpy(_voxel_num.data()+start, gaussreconptr, (end-start)*sizeof(int));
 
       int reconSize = dp.Get<int>();
@@ -5722,7 +5722,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
 	  gaussreconptr2 = (double*) malloc (_reconstructed.GetSizeMat()*sizeof(double));
       }
       
-      dp.Get(reconSize*sizeof(double), gaussreconptr2);
+      dp.Get(reconSize*sizeof(double), (uint8_t*)gaussreconptr2);
       
       _reconstructed.SumVec(gaussreconptr2);
       
@@ -5824,11 +5824,11 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
   else if (ret == 8)
   {
       int addonSize = dp.Get<int>();
-      dp.Get(addonSize*sizeof(double), gaussreconptr2);
+      dp.Get(addonSize*sizeof(double), (uint8_t*)gaussreconptr2);
       _addon.SumVec(gaussreconptr2);
 
       int confidenceMapSize = dp.Get<int>();
-      dp.Get(confidenceMapSize*sizeof(double), gaussreconptr2);
+      dp.Get(confidenceMapSize*sizeof(double), (uint8_t*)gaussreconptr2);
       _confidence_map.SumVec(gaussreconptr2);
       
       reconRecv++;
@@ -5916,7 +5916,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
 	  auto rows = dp.Get<int>();
 	  auto cols = dp.Get<int>();
 	  
-	  dp.Get(rows*cols*sizeof(double), _transformations[i]._matrix.GetMatrix());
+	  dp.Get(rows*cols*sizeof(double), (uint8_t*)_transformations[i]._matrix.GetMatrix());
       }
 
       reconRecv++;
