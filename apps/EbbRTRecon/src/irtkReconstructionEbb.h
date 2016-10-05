@@ -505,7 +505,7 @@ public:
   ///To compare how simulation from the reconstructed volume matches the original stacks
   void SimulateStacks(vector<irtkRealImage>& stacks);
 
-  void SimulateSlices(bool);
+  void SimulateSlices();
 
   ///Puts origin of the image into origin of world coordinates
   static void ResetOrigin(irtkGreyImage &image,
