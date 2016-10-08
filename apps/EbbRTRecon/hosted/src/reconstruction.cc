@@ -583,7 +583,7 @@ int main(int argc, char **argv) {
 #else
 
   
-  int numNodes = 2;
+  int numNodes = 1;
   reconstruction->setNumNodes(numNodes);
   
   auto bindir = boost::filesystem::system_complete(argv[0]).parent_path() /
@@ -591,7 +591,7 @@ int main(int argc, char **argv) {
 
   for (i = 0; i < numNodes; i++) {
     auto node_desc =
-        node_allocator->AllocateNode(bindir.string(), numThreads, 1, 16);
+        node_allocator->AllocateNode(bindir.string(), numThreads, 1, 32);
     node_desc.NetworkId().Then(
         [reconstruction, &c](Future<Messenger::NetworkId> f) {
           // pass context c

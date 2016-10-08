@@ -1,8 +1,9 @@
 set -x
 
-make -j 'CPPFLAGS=-O4 -D__EBB__ -DHAS_NIFTI -DHAS_TBB -D__MNODE__ -Wno-unused-but-set-variable -Wno-unused-result -Wno-unused-label -Wno-unused-function -DHAVE_INLINE' 'EBBRT_APP_CPPFLAGS=-O4 -Wno-unused-local-typedefs -Wno-unused-label -Wno-unused-variable -Wno-unused-function -Wno-deprecated -DHAVE_INLINE -D__MNODE__ -D__EBBRT_QUIET__' Release
+#make -j CPPFLAGS='-O4 -D__EBB__ -DHAS_NIFTI -DHAS_TBB -D__MNODE__ -Wno-unused-but-set-variable -Wno-unused-result -Wno-unused-label -Wno-unused-function -DHAVE_INLINE' EBBRT_APP_CPPFLAGS='-O4 -Wno-unused-local-typedefs -Wno-unused-label -Wno-unused-variable -Wno-unused-function -Wno-deprecated -DHAVE_INLINE -D__MNODE__ -D__EBBRT_QUIET__' Debug
 
-#make -j 'CPPFLAGS=-O4 -D__EBB__ -DHAS_NIFTI -DHAS_TBB -D__MNODE__ -Wno-unused-but-set-variable -Wno-unused-result -Wno-unused-label -Wno-unused-function -DHAVE_INLINE' 'EBBRT_APP_CPPFLAGS=-O4 -Wno-unused-local-typedefs -Wno-unused-label -Wno-unused-variable -Wno-unused-function -Wno-deprecated -DHAVE_INLINE -D__MNODE__' Release
+make -j CPPFLAGS='-O4 -D__EBB__ -DHAS_NIFTI -DHAS_TBB -D__MNODE__ -Wno-unused-but-set-variable -Wno-unused-result -Wno-unused-label -Wno-unused-function -DHAVE_INLINE' EBBRT_APP_CPPFLAGS='-O4 -Wno-unused-local-typedefs -Wno-unused-label -Wno-unused-variable -Wno-unused-function -Wno-deprecated -DHAVE_INLINE -D__MNODE__ -D__EBBRT_QUIET__' Release
+#make -j CPPFLAGS='-O4 -D__EBB__ -DHAS_NIFTI -DHAS_TBB -Wno-unused-but-set-variable -Wno-unused-result -Wno-unused-label -Wno-unused-function -DHAVE_INLINE' EBBRT_APP_CPPFLAGS='-O4 -Wno-unused-local-typedefs -Wno-unused-label -Wno-unused-variable -Wno-unused-function -Wno-deprecated -DHAVE_INLINE' Release
 
 #make -j CPPFLAGS='-D__EBB__ -DHAS_NIFTI -Wno-unused-but-set-variable -Wno-unused-result -DHAVE_INLINE' EBBRT_APP_CPPFLAGS='-Wno-unused-local-typedefs -Wno-unused-variable -Wno-deprecated -DHAVE_INLINE' Debug
 #make -j CPPFLAGS='-D__EBB__ -DHAS_NIFTI -Wno-unused-but-set-variable -Wno-unused-result -Wno-unused-label -DHAVE_INLINE' EBBRT_APP_CPPFLAGS='-Wno-unused-local-typedefs -Wno-unused-label -Wno-unused-variable -Wno-deprecated -D__EBBRT_QUIET__ -DHAVE_INLINE' Release

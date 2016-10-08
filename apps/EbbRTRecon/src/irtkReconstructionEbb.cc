@@ -792,6 +792,8 @@ void irtkReconstructionEbb::SendRecon(int iterations) {
     auto tf = testFuture.GetFuture();
     tf.Block();
     FORPRINTF("SendRecon: returned from future\n");
+    mypromise.SetValue();
+    
 #endif
 }
 
@@ -1400,7 +1402,7 @@ void irtkReconstructionEbb::RestoreSliceIntensities() {
       }
   }
 
-  //FORPRINTF("sumPartImage: %lf\n", sumPartImage(_slices, _start, _end));
+  //FORPRINTF("%s: sumPartImage: %lf\n", __PRETTY_FUNCTION__, sumPartImage(_slices, _start, _end));
   
 }
 
@@ -1440,7 +1442,6 @@ void irtkReconstructionEbb::ScaleVolume() {
   
   // calculate scale for the volume
   double scale = _sscalenum / _sscaleden;
-  //FORPRINTF("scale = %lf, recon = %lf\n", scale, _reconstructed.Sum());
   
   irtkRealPixel *ptr = _reconstructed.GetPointerToVoxels();
   for (i = 0; i < _reconstructed.GetNumberOfVoxels(); i++) {
@@ -1448,6 +1449,8 @@ void irtkReconstructionEbb::ScaleVolume() {
       *ptr = *ptr * scale;
     ptr++;
   }
+
+  //FORPRINTF("%s: scale = %lf, recon = %lf\n", __PRETTY_FUNCTION__, scale, _reconstructed.Sum());
 }
 
 void runSimulateSlices(irtkReconstructionEbb *reconstructor, int start,
@@ -1469,7 +1472,7 @@ void runSimulateSlices(irtkReconstructionEbb *reconstructor, int start,
     
     reconstructor->_simulated_inside[inputIndex] = 0;
     reconstructor->_slice_inside_cpu[inputIndex] = 0;
-
+	  
     POINT3D p;
     for (unsigned int i = 0; i < reconstructor->_slices[inputIndex].GetX();
          i++) {
@@ -1529,13 +1532,8 @@ void irtkReconstructionEbb::SimulateSlices() {
     parallelSimulateSlices();
 
 #else
-    FORPRINTF("simulateslices start\n");
-    int a = 1;
-    while(a)
-    {
-	a = 1;
-    }
-    /*size_t ncpus = ebbrt::Cpu::Count();
+    //FORPRINTF("simulateslices start\n");
+    size_t ncpus = ebbrt::Cpu::Count();
     static ebbrt::SpinBarrier bar(ncpus);
     ebbrt::EventManager::EventContext context;
     std::atomic<size_t> count(0);
@@ -1543,7 +1541,7 @@ void irtkReconstructionEbb::SimulateSlices() {
     int diff = (_end-_start);
     
     for (size_t i = 0; i < ncpus; i++) {
-	FORPRINTF("running cpu %d of %d\n", (int) i, (int)ncpus);
+	//FORPRINTF("running cpu %d of %d\n", (int) i, (int)ncpus);
       // spawn jobs on each core using SpawnRemote
       ebbrt::event_manager->SpawnRemote(
           [this, theCpu, ncpus, &count, &context, i, diff]() {
@@ -1568,12 +1566,12 @@ void irtkReconstructionEbb::SimulateSlices() {
               i)); // if i don't add indexToCPU, one of the cores never run ? ?
     }
     ebbrt::event_manager->SaveContext(context);
-    FORPRINTF("runSimulateSlices end\n");*/
-    runSimulateSlices(this, _start, _end);
+    //FORPRINTF("runSimulateSlices end\n");
+    //runSimulateSlices(this, _start, _end);
 #endif
 
-FORPRINTF("\n****** SimulateSlices END*****\n");
-  FORPRINTF("\n_start = %d, _end = %d, \t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n\n", _start, _end, sumPartImage(_simulated_slices, _start, _end), sumPartImage(_simulated_weights, _start, _end), sumPartImage(_simulated_inside, _start, _end), sumPartInt(_slice_inside_cpu, _start, _end));
+    //FORPRINTF("\n****** %s END*****\n", __PRETTY_FUNCTION__);
+    //FORPRINTF("\n_start = %d, _end = %d, \t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n\n", _start, _end, sumPartImage(_simulated_slices, _start, _end), sumPartImage(_simulated_weights, _start, _end), sumPartImage(_simulated_inside, _start, _end), sumPartInt(_slice_inside_cpu, _start, _end));
 //FORPRINTF("\n\t_simulated_slices=%lf\n\tsimulated_weights=%lf\n\tsimulated_inside=%lf\n\t_slice_inside_cpu=%d\n\n", sumImage(_simulated_slices), sumImage(_simulated_weights), sumImage(_simulated_inside), sumInt(_slice_inside_cpu));
 //FORPRINTF("\n**********************\n");
 }
@@ -2603,7 +2601,7 @@ void irtkReconstructionEbb::CoeffInit(int iter) {
   int diff = _slices.size();
       
   for (size_t i = 0; i < ncpus; i++) {
-      FORPRINTF("running cpu %d of %d\n", (int) i, (int)ncpus);
+      //FORPRINTF("running cpu %d of %d\n", (int) i, (int)ncpus);
       // spawn jobs on each core using SpawnRemote
       ebbrt::event_manager->SpawnRemote(
           [this, theCpu, ncpus, &count, &context, i, diff]() {
@@ -2670,7 +2668,7 @@ void irtkReconstructionEbb::CoeffInit(int iter) {
 
   _average_volume_weight = sum / num;
 
-  FORPRINTF("\n********* COEFFINIT ***********\n\t_average_volume_weight = %lf\n\t_volume_weights = %f\n\tchecksum _reconstructed = %f\n*********************\n", _average_volume_weight, sumOneImage(_volume_weights), SumRecon());
+  //FORPRINTF("\n********* COEFFINIT ***********\n\t_average_volume_weight = %lf\n\t_volume_weights = %f\n\tchecksum _reconstructed = %f\n*********************\n", _average_volume_weight, sumOneImage(_volume_weights), SumRecon());
 
 } // end of CoeffInit()
 
@@ -2754,7 +2752,7 @@ void irtkReconstructionEbb::GaussianReconstruction() {
   {
       if (_voxel_num[i] < 0.1 * median) { _small_slices.push_back(i); }
   }
-  FORPRINTF("Gaussian Recconstruction finished\n");
+  //FORPRINTF("Gaussian Recconstruction finished\n");
 }
 
 void irtkReconstructionEbb::InitializeEM() {
@@ -2887,7 +2885,7 @@ void irtkReconstructionEbb::InitializeRobustStatistics() {
   // intensities
   _m_cpu = 1 / (2.1 * _max_intensity - 1.9 * _min_intensity);
   
-FORPRINTF("\nInitializeRobustStatistics: \n\t_sigma_cpu=%lf\n\tsigma_s_cpu=%lf\n\t_mix_cpu=%lf\n\t_mix_s_cpu=%lf\n\t_m_cpu=%lf\n\t_tsigma=%lf, _tnum=%d\n",  _sigma_cpu, _sigma_s_cpu, _mix_cpu, _mix_s_cpu, _m_cpu, _tsigma, _tnum);
+//FORPRINTF("\nInitializeRobustStatistics: \n\t_sigma_cpu=%lf\n\tsigma_s_cpu=%lf\n\t_mix_cpu=%lf\n\t_mix_s_cpu=%lf\n\t_m_cpu=%lf\n\t_tsigma=%lf, _tnum=%d\n",  _sigma_cpu, _sigma_s_cpu, _mix_cpu, _mix_s_cpu, _m_cpu, _tsigma, _tnum);
   
 }
 
@@ -3123,11 +3121,11 @@ void irtkReconstructionEbb::EStep() {
 	ebbrt::event_manager->SaveContext(context);
     }
     else {
-    //FORPRINTF("runEStep\n");
-    }runEStep(this, _start, _end, _tsum, _tden, _tsum2, _tden2, _tmaxs, _tmins);
+	runEStep(this, _start, _end, _tsum, _tden, _tsum2, _tden2, _tmaxs, _tmins);
+    }
     
 #endif
-    FORPRINTF("%lf %lf %lf %lf %lf %lf\n", _tsum, _tden, _tsum2, _tden2, _tmaxs, _tmins);
+    //FORPRINTF("%lf %lf %lf %lf %lf %lf\n", _tsum, _tden, _tsum2, _tden2, _tmaxs, _tmins);
   
     if (_tden > 0)
 	_mean_s_cpu = _tsum / _tden;
@@ -3165,7 +3163,7 @@ void irtkReconstructionEbb::EStep() {
 	}
     }
   
-    FORPRINTF("%lf %lf %lf %lf\n", _ttsum, _ttden, _ttsum2, _ttden2);
+    //FORPRINTF("%lf %lf %lf %lf\n", _ttsum, _ttden, _ttsum2, _ttden2);
     //return;
   
   //_sigma_s
@@ -3252,7 +3250,7 @@ void irtkReconstructionEbb::EStep() {
 	_mix_s_cpu = 0.9;
     }
     
-    FORPRINTF("EStep: %d %lf %lf\n", _ttnum, _ttsum, _mix_s_cpu);
+    //FORPRINTF("EStep: %d %lf %lf\n", _ttnum, _ttsum, _mix_s_cpu);
 }
 
 void runScale(irtkReconstructionEbb *reconstructor, int start, int end) {
@@ -3550,7 +3548,7 @@ void irtkReconstructionEbb::AdaptiveRegularization(int iter,
   AdaptiveRegularization2(b, factor, original2);
 
   if (_alpha * _lambda / (_delta * _delta) > 0.068) {
-    PRINTF("Warning: regularization might not have smoothing effect! Ensure "
+    FORPRINTF("Warning: regularization might not have smoothing effect! Ensure "
            "that alpha*lambda/delta^2 is below 0.068.\n");
   }
 }
@@ -3670,11 +3668,11 @@ void irtkReconstructionEbb::Superresolution(int iter) {
   
 #else
 
-  /*if(iter == 1)
+  if(iter == 1)
   {
       _addon.Initialize(_reconstructed.GetImageAttributes());
       _confidence_map.Initialize(_reconstructed.GetImageAttributes());
-      }*/
+  }
 
   // Clear addon
   _addon = 0;
@@ -3766,7 +3764,7 @@ void irtkReconstructionEbb::Superresolution(int iter) {
     BiasCorrectVolume(original);
   }
   
-  //FORPRINTF("%lf\n", SumRecon());
+  //FORPRINTF("%s: %lf\n", __PRETTY_FUNCTION__, SumRecon());
 }
 
 void runMStep(irtkReconstructionEbb *reconstructor, int start, int end,
@@ -3966,7 +3964,7 @@ void irtkReconstructionEbb::MStep(int iter) {
   // Calculate m
   _m_cpu = 1 / (_mmax - _mmin);
 
-  //FORPRINTF("%lf %lf %lf %lf %lf %lf %lf %lf\n", _msigma, _mmix, _mnum, _mmin, _mmax, _sigma_cpu, _mix_cpu, _m_cpu);
+  //FORPRINTF("%s: %lf %lf %lf %lf %lf %lf %lf %lf\n", __PRETTY_FUNCTION__, _msigma, _mmix, _mnum, _mmin, _mmax, _sigma_cpu, _mix_cpu, _m_cpu);
 }
 
 void irtkReconstructionEbb::BiasCorrectVolume(irtkRealImage &original) {
@@ -4886,7 +4884,7 @@ void irtkReconstructionEbb::RunRecon(int iterations, double delta,
   FORPRINTF("MStep: %lf seconds\n", timers[MSTEP]);
   FORPRINTF("MaskVolume: %lf seconds\n", timers[MASKVOLUME]);
   //FORPRINTF("Evaluate: %lf seconds\n", timers[EVALUATE]);
-  FORPRINTF("RestoreSliceIntensities and ScaleVolume: %lf seconds\n",
+  FORPRINTF("RestoreSliceIntensitiesand ScaleVolume: %lf seconds\n",
             timers[RESTORESLICE]);
 
   FORPRINTF("compute time: %lf seconds\n",
@@ -4914,7 +4912,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
                                            std::unique_ptr<IOBuf> &&buffer) {
   auto dp = buffer->GetDataPointer();
   auto ret = dp.Get<int>();
-  FORPRINTF("%s, Received %d bytes, %d\n", __PRETTY_FUNCTION__, (int)buffer->ComputeChainDataLength(), ret);
+  //FORPRINTF("%s, Received %d bytes, %d\n", __PRETTY_FUNCTION__, (int)buffer->ComputeChainDataLength(), ret);
   bytesTotal += buffer->ComputeChainDataLength();
   
 // backend
@@ -4939,7 +4937,7 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       auto nslices = dp.Get<int>();
       _slices.resize(nslices);
     
-      FORPRINTF("EBBRT BM received %d, nslices = %d\n", ret, nslices);
+      //FORPRINTF("EBBRT BM received %d, nslices = %d\n", ret, nslices);
 
       for(int i = 0; i < nslices; i++)
       {
@@ -4989,7 +4987,19 @@ void irtkReconstructionEbb::ReceiveMessage(Messenger::NetworkId nid,
       bool intensity_matching = true;
       double lambda = 0.02;
       int levels = 3;
-    
+
+      _simulated_slices.clear();
+      _simulated_weights.clear();
+      _simulated_inside.clear();
+      
+      for(int i=0;i<_slices.size();i++)
+      {
+	  _simulated_slices.push_back(_slices[i]);
+	  _simulated_weights.push_back(_slices[i]);
+	  _simulated_inside.push_back(_slices[i]);
+      }
+
+      
       RunRecon(iterations, delta, lastIterLambda, rec_iterations_first,
 	       rec_iterations_last, intensity_matching, lambda, levels);
       
